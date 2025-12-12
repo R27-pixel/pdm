@@ -1,0 +1,63 @@
+mod app;
+mod ui;
+
+use std::io;
+use anyhow::Result;
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEventKind},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{backend::CrosstermBackend, Terminal};
+use app::{App, CurrentScreen};
+
+fn main() -> Result<()> {
+    //  Setup Terminal
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    //  Run App
+    let mut app = App::new();
+    let res = run_app(&mut terminal, &mut app);
+
+    //  Restore Terminal
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    if let Err(err) = res {
+        println!("{:?}", err);
+    }
+
+    Ok(())
+}
+
+fn run_app(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &mut App) -> io::Result<()> {
+    loop {
+        terminal.draw(|f| ui::ui(f, app))?;
+
+        if let Event::Key(key) = event::read()? {
+            if key.kind == KeyEventKind::Press {
+                match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Up => {
+                        if app.sidebar_index > 0 {
+                            app.sidebar_index -= 1;
+                            app.toggle_menu();
+                        }
+                    }
+                    KeyCode::Down => {
+                        if app.sidebar_index < 1 { 
+                            app.sidebar_index += 1;
+                            app.toggle_menu();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
