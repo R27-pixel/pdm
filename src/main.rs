@@ -2,11 +2,10 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-mod app;
-mod ui;
+use pdm::app::{App, CurrentScreen};
+use pdm::ui;
 
 use anyhow::Result;
-use app::App;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
@@ -55,21 +54,47 @@ where
         if let Event::Key(key) = event_provider()?
             && key.kind == KeyEventKind::Press
         {
-            match key.code {
-                KeyCode::Char('q') => return Ok(()),
-                KeyCode::Up => {
-                    if app.sidebar_index > 0 {
-                        app.sidebar_index -= 1;
-                        app.toggle_menu();
+            if key.code == KeyCode::Char('q') {
+                return Ok(());
+            }
+            match app.current_screen {
+                // File Explorer Modal
+                CurrentScreen::FileExplorer => match key.code {
+                    KeyCode::Up => app.explorer.previous(),
+                    KeyCode::Down => app.explorer.next(),
+                    KeyCode::Esc => app.toggle_menu(), // Cancel
+                    KeyCode::Enter => {
+                        if let Some(path) = app.explorer.select() {
+                            // File Selected!
+                            app.bitcoin_conf_path = Some(path);
+                            app.toggle_menu(); // Go back to main screen
+                        }
                     }
-                }
-                KeyCode::Down => {
-                    if app.sidebar_index < 1 {
-                        app.sidebar_index += 1;
-                        app.toggle_menu();
+                    _ => {}
+                },
+
+                // Standard Navigation
+                _ => match key.code {
+                    KeyCode::Up => {
+                        if app.sidebar_index > 0 {
+                            app.sidebar_index -= 1;
+                            app.toggle_menu();
+                        }
                     }
-                }
-                _ => {}
+                    KeyCode::Down => {
+                        if app.sidebar_index < 1 {
+                            app.sidebar_index += 1;
+                            app.toggle_menu();
+                        }
+                    }
+                    KeyCode::Enter => {
+                        // If we are on "Bitcoin Config", open the explorer
+                        if app.current_screen == CurrentScreen::BitcoinConfig {
+                            app.current_screen = CurrentScreen::FileExplorer;
+                        }
+                    }
+                    _ => {}
+                },
             }
         }
     }
