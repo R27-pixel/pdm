@@ -224,4 +224,57 @@ mod tests {
         let res = run_app(&mut terminal, &mut app, event_provider);
         assert!(res.is_ok());
     }
+
+    #[test]
+    fn test_file_explorer_wrap_and_select_sets_config() {
+        use std::env::temp_dir;
+        use std::fs::{File, create_dir_all};
+
+        // Setup a temporary filesystem sandbox
+        let base = temp_dir().join("pdm_select_test");
+        let _ = std::fs::remove_dir_all(&base);
+        create_dir_all(&base).unwrap();
+        let file_path = base.join("bitcoin.conf");
+        File::create(&file_path).unwrap();
+
+        let backend = TestBackend::new(80, 25);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new();
+        app.explorer.current_dir = base.clone();
+        app.explorer.load_directory();
+
+        let mut step = 0;
+
+        let event_provider = |app: &mut App| {
+            step += 1;
+            match step {
+                1 => Ok(Event::Key(KeyEvent::new(
+                    KeyCode::Down,
+                    KeyModifiers::empty(),
+                ))), // move to bitcoin config
+                2 => Ok(Event::Key(KeyEvent::new(
+                    KeyCode::Enter,
+                    KeyModifiers::empty(),
+                ))), // open explorer
+                3 => Ok(Event::Key(KeyEvent::new(
+                    KeyCode::Up,
+                    KeyModifiers::empty(),
+                ))), // force wrap-around
+                4 => Ok(Event::Key(KeyEvent::new(
+                    KeyCode::Enter,
+                    KeyModifiers::empty(),
+                ))), // select file
+                5 => Ok(Event::Key(KeyEvent::new(
+                    KeyCode::Char('q'),
+                    KeyModifiers::empty(),
+                ))),
+                _ => panic!("unexpected"),
+            }
+        };
+
+        let res = run_app(&mut terminal, &mut app, event_provider);
+        assert!(res.is_ok());
+
+        assert_eq!(app.bitcoin_conf_path, Some(file_path));
+    }
 }
