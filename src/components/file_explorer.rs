@@ -188,4 +188,30 @@ mod tests {
         let result = explorer.select();
         assert_eq!(result, Some(file));
     }
+
+    #[test]
+    fn selecting_parent_directory_moves_up() {
+        let base = setup_temp_fs();
+        let child = base.join("child");
+        fs::create_dir(&child).unwrap();
+
+        let mut explorer = FileExplorer {
+            current_dir: child.clone(),
+            files: vec![],
+            selected_index: 0,
+        };
+
+        explorer.load_directory();
+
+        // First entry must be ".."
+        assert!(explorer.files[0].ends_with(".."));
+
+        // Select the ".." entry
+        let result = explorer.select();
+
+        // It should move to parent and not return a file
+        assert!(result.is_none());
+        assert_eq!(explorer.current_dir, base);
+        assert!(!explorer.files.is_empty());
+    }
 }
