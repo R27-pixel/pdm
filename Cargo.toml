@@ -10,6 +10,8 @@ anyhow = "1.0.100"
 config = "0.15.19"
 crossterm = "0.29.0"
 ratatui = "0.29.0"
+serde = { version = "1.0", features = ["derive"] }
+bitcoin = "0.31"
 
 [dev-dependencies]
 insta = "1.44.3"
