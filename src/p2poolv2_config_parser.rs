@@ -949,4 +949,91 @@ answer = 42
         let err = parse_config(&path).unwrap_err();
         assert!(err.to_string().contains("Invalid P2Pool config"));
     }
+
+    #[test]
+    fn wrong_network_address_is_rejected() {
+        // bc1... is a MAINNET address, but network is set to signet
+        let (path, _dir) = write_cfg(
+            r#"
+[stratum]
+network = "signet"
+bootstrap_address = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"
+version_mask = "1fffe000"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+
+[store]
+path = "./store.db"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "p2pool"
+password = "p2pool"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        );
+
+        let err = parse_config(&path).unwrap_err();
+
+        assert!(
+            err.to_string().contains("Invalid bootstrap_address"),
+            "expected wrong-network address to be rejected, got: {err}"
+        );
+    }
+
+    #[test]
+    fn minimal_config_uses_defaults() {
+        // ensures Serde defaults + flattening actually work together
+        let (path, _dir) = write_cfg(
+            r#"
+[stratum]
+network = "signet"
+version_mask = "1fffe000"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+"#,
+        );
+
+        let entries = parse_config(&path).unwrap();
+
+        assert!(entries.iter().any(|e| e.key == "port" && e.value == "3333"));
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.key == "minimum_difficulty" && e.value == "100")
+        );
+    }
+
+    #[test]
+    fn donation_without_address_fails() {
+        let (path, _dir) = write_cfg(
+            r#"
+[stratum]
+donation = 100
+network = "signet"
+version_mask = "1fffe000"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+"#,
+        );
+
+        let err = parse_config(&path).unwrap_err();
+        assert!(err.to_string().contains("donation_address is required"));
+    }
+
+    #[test]
+    fn fee_without_address_fails() {
+        let (path, _dir) = write_cfg(
+            r#"
+[stratum]
+fee = 50
+network = "signet"
+version_mask = "1fffe000"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+"#,
+        );
+
+        let err = parse_config(&path).unwrap_err();
+        assert!(err.to_string().contains("fee_address is required"));
+    }
 }
