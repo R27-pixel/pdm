@@ -1036,4 +1036,52 @@ zmqpubhashblock = "tcp://127.0.0.1:28332"
         let err = parse_config(&path).unwrap_err();
         assert!(err.to_string().contains("fee_address is required"));
     }
+
+    #[test]
+    fn parsed_to_raw_preserves_all_fields() {
+        let parsed = StratumConfig::<Parsed> {
+            hostname: "0.0.0.0".into(),
+            port: 3333,
+            start_difficulty: 10000,
+            minimum_difficulty: 100,
+            maximum_difficulty: Some(1_000_000),
+            solo_address: Some("tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk".into()),
+            zmqpubhashblock: "tcp://127.0.0.1:28332".into(),
+            bootstrap_address: Some("tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk".into()),
+            donation_address: Some("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx".into()),
+            donation: Some(100),
+            fee_address: Some("tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk".into()),
+            fee: Some(50),
+            network: Network::Signet,
+            version_mask: 0x1fffe000,
+            difficulty_multiplier: 1.0,
+            ignore_difficulty: Some(true),
+            pool_signature: Some("TestPool".into()),
+            bootstrap_address_parsed: None,
+            donation_address_parsed: None,
+            fee_address_parsed: None,
+            _state: PhantomData,
+        };
+
+        let raw: StratumConfig<Raw> = parsed.clone().into();
+
+        // Explicit field-by-field assertions
+        assert_eq!(raw.hostname, parsed.hostname);
+        assert_eq!(raw.port, parsed.port);
+        assert_eq!(raw.start_difficulty, parsed.start_difficulty);
+        assert_eq!(raw.minimum_difficulty, parsed.minimum_difficulty);
+        assert_eq!(raw.maximum_difficulty, parsed.maximum_difficulty);
+        assert_eq!(raw.solo_address, parsed.solo_address);
+        assert_eq!(raw.zmqpubhashblock, parsed.zmqpubhashblock);
+        assert_eq!(raw.bootstrap_address, parsed.bootstrap_address);
+        assert_eq!(raw.donation_address, parsed.donation_address);
+        assert_eq!(raw.donation, parsed.donation);
+        assert_eq!(raw.fee_address, parsed.fee_address);
+        assert_eq!(raw.fee, parsed.fee);
+        assert_eq!(raw.network, parsed.network);
+        assert_eq!(raw.version_mask, parsed.version_mask);
+        assert_eq!(raw.difficulty_multiplier, parsed.difficulty_multiplier);
+        assert_eq!(raw.ignore_difficulty, parsed.ignore_difficulty);
+        assert_eq!(raw.pool_signature, parsed.pool_signature);
+    }
 }
