@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use crate::app::AppAction;
+use crossterm::event::{KeyCode, KeyEvent};
 use std::fs;
 use std::path::PathBuf;
 
@@ -114,6 +116,27 @@ impl FileExplorer {
         }
 
         None
+    }
+
+    pub fn handle_input(&mut self, key: KeyEvent) -> AppAction {
+        match key.code {
+            KeyCode::Up => {
+                self.previous();
+                AppAction::None
+            }
+            KeyCode::Down => {
+                self.next();
+                AppAction::None
+            }
+            KeyCode::Enter => {
+                if let Some(path) = self.select() {
+                    return AppAction::FileSelected(path);
+                }
+                AppAction::None
+            }
+            KeyCode::Esc => AppAction::CloseModal,
+            _ => AppAction::None,
+        }
     }
 }
 

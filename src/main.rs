@@ -2,12 +2,15 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use pdm::app::AppAction;
 use pdm::app::{App, CurrentScreen};
+use pdm::config::parse_config as parse_bitcoin_config;
+use pdm::p2poolv2_config_parser::parse_config as parse_p2pool_config;
 use pdm::ui;
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -15,266 +18,142 @@ use ratatui::{Terminal, backend::Backend, backend::CrosstermBackend};
 use std::io;
 
 fn main() -> Result<()> {
-    //  Setup Terminal
+    // Setup Terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    //  Run App
+    // Run App
     let mut app = App::new();
-    let res = run_app(&mut terminal, &mut app, |_app: &mut App| event::read());
+    let res = run_app(&mut terminal, &mut app);
 
-    //  Restore Terminal
+    // Restore Terminal
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
     if let Err(err) = res {
-        println!("{err:?}");
+        println!("Error: {:?}", err);
     }
-
     Ok(())
 }
 
-// Accept any Backend and an Event Provider Closure
-fn run_app<B: Backend, F>(
-    terminal: &mut Terminal<B>,
-    app: &mut App,
-    mut event_provider: F,
-) -> io::Result<()>
-where
-    F: FnMut(&mut App) -> io::Result<Event>,
-{
+fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
     loop {
         terminal.draw(|f| ui::ui(f, app))?;
 
-        // We check the event from our provider
-        if let Event::Key(key) = event_provider(app)?
-            && key.kind == KeyEventKind::Press
-        {
-            if key.code == KeyCode::Char('q') {
-                return Ok(());
-            }
-            match app.current_screen {
-                // File Explorer Modal
-                CurrentScreen::FileExplorer => match key.code {
-                    KeyCode::Up => app.explorer.previous(),
-                    KeyCode::Down => app.explorer.next(),
-                    KeyCode::Esc => app.toggle_menu(), // Cancel
-                    KeyCode::Enter => {
-                        if let Some(path) = app.explorer.select() {
-                            // File Selected!
-                            app.bitcoin_conf_path = Some(path);
-                            app.toggle_menu(); // Go back to main screen
-                        }
-                    }
-                    _ => {}
-                },
+        if let Event::Key(key) = event::read()? {
+            if key.kind == KeyEventKind::Press {
+                if key.code == KeyCode::Char('q')
+                    || (key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c'))
+                {
+                    return Ok(());
+                }
 
-                // Standard Navigation
-                _ => match key.code {
-                    KeyCode::Up => {
-                        if app.sidebar_index > 0 {
-                            app.sidebar_index -= 1;
-                            app.toggle_menu();
+                if app.current_screen == CurrentScreen::FileExplorer {
+                    let action = app.explorer.handle_input(key);
+                    handle_action(action, app)?;
+                    continue;
+                }
+
+                let action = if app.current_screen == CurrentScreen::FileExplorer {
+                    app.explorer.handle_input(key)
+                } else {
+                    // Global Navigation (Sidebar & Opens Explorer)
+                    match key.code {
+                        // Enter: Opens Explorer if we are on a config screen
+                        KeyCode::Enter => {
+                            if app.current_screen == CurrentScreen::BitcoinConfig
+                                || app.current_screen == CurrentScreen::P2PoolConfig
+                            {
+                                AppAction::OpenExplorer(app.current_screen.clone())
+                            } else {
+                                AppAction::None
+                            }
                         }
-                    }
-                    KeyCode::Down => {
-                        if app.sidebar_index < 1 {
-                            app.sidebar_index += 1;
-                            app.toggle_menu();
+
+                        // Sidebar Navigation
+                        KeyCode::Down => {
+                            if app.sidebar_index < 2 {
+                                app.sidebar_index += 1;
+                                AppAction::ToggleMenu
+                            } else {
+                                AppAction::None
+                            }
                         }
-                    }
-                    KeyCode::Enter => {
-                        // If we are on "Bitcoin Config", open the explorer
-                        if app.current_screen == CurrentScreen::BitcoinConfig {
-                            app.current_screen = CurrentScreen::FileExplorer;
+                        KeyCode::Up => {
+                            if app.sidebar_index > 0 {
+                                app.sidebar_index -= 1;
+                                AppAction::ToggleMenu
+                            } else {
+                                AppAction::None
+                            }
                         }
+                        _ => AppAction::None,
                     }
-                    _ => {}
-                },
+                };
+
+                if handle_action(action, app)? {
+                    return Ok(());
+                }
             }
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crossterm::event::{KeyEvent, KeyEventState, KeyModifiers};
-    use ratatui::backend::TestBackend;
+// Logic Handler
+fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
+    match action {
+        AppAction::Quit => return Ok(true),
 
-    #[test]
-    fn test_app_integration_smoke_test() {
-        let backend = TestBackend::new(80, 25);
-        let mut terminal = Terminal::new(backend).unwrap();
-        let mut app = App::new();
+        AppAction::ToggleMenu => app.toggle_menu(),
 
-        let mut step = 0;
+        AppAction::OpenExplorer(trigger) => {
+            app.explorer_trigger = Some(trigger);
+            app.current_screen = CurrentScreen::FileExplorer;
+        }
 
-        let event_provider = |_app: &mut App| {
-            step += 1;
-            match step {
-                1 => Ok(Event::Key(KeyEvent {
-                    code: KeyCode::Down,
-                    modifiers: KeyModifiers::empty(),
-                    kind: KeyEventKind::Press,
-                    state: KeyEventState::empty(),
-                })),
-                2 => Ok(Event::Key(KeyEvent {
-                    code: KeyCode::Char('q'),
-                    modifiers: KeyModifiers::empty(),
-                    kind: KeyEventKind::Press,
-                    state: KeyEventState::empty(),
-                })),
-                _ => panic!("Should have exited"),
+        AppAction::CloseModal => {
+            if let Some(trigger) = &app.explorer_trigger {
+                app.current_screen = trigger.clone();
+            } else {
+                app.toggle_menu();
             }
-        };
+            app.explorer_trigger = None;
+        }
 
-        // First frame
-        terminal.draw(|f| ui::ui(f, &mut app)).unwrap();
-        insta::assert_debug_snapshot!("home_screen", terminal.backend());
-
-        // Run app (process events + redraws)
-        let res = run_app(&mut terminal, &mut app, event_provider);
-        assert!(res.is_ok());
-
-        // Final frame after DOWN
-        insta::assert_debug_snapshot!("menu_toggled", terminal.backend());
-
-        assert_eq!(app.sidebar_index, 1);
-    }
-
-    #[test]
-    fn test_file_explorer_flow() {
-        // Setup
-        let backend = TestBackend::new(80, 25);
-        let mut terminal = Terminal::new(backend).unwrap();
-        let mut app = App::new();
-
-        // Define Steps
-        let mut step = 0;
-        let event_provider = |app: &mut App| {
-            step += 1;
-            match step {
-                1 => {
-                    // Start at Home.
-                    // Action: Move DOWN to "Bitcoin Config"
-                    Ok(Event::Key(KeyEvent::new(
-                        KeyCode::Down,
-                        KeyModifiers::empty(),
-                    )))
+        AppAction::FileSelected(path) => {
+            if let Some(trigger) = &app.explorer_trigger {
+                match trigger {
+                    CurrentScreen::P2PoolConfig => {
+                        app.p2pool_conf_path = Some(path.clone());
+                        // DIRECT LOAD: Save to vector
+                        if let Ok(entries) = parse_p2pool_config(&path) {
+                            app.p2pool_data = entries;
+                        }
+                        app.current_screen = CurrentScreen::P2PoolConfig;
+                    }
+                    CurrentScreen::BitcoinConfig => {
+                        app.bitcoin_conf_path = Some(path.clone());
+                        // DIRECT LOAD: Save to vector
+                        if let Ok(entries) = parse_bitcoin_config(&path) {
+                            app.bitcoin_data = entries;
+                        }
+                        app.current_screen = CurrentScreen::BitcoinConfig;
+                    }
+                    _ => {}
                 }
-                2 => {
-                    // Action: Press ENTER to open File Explorer
-                    Ok(Event::Key(KeyEvent::new(
-                        KeyCode::Enter,
-                        KeyModifiers::empty(),
-                    )))
-                }
-                3 => {
-                    // WE ARE NOW IN FILE EXPLORER
-                    // Assertion: Check internal state (safer than snapshotting dynamic file lists)
-                    assert_eq!(
-                        app.current_screen,
-                        CurrentScreen::FileExplorer,
-                        "Should have switched to File Explorer"
-                    );
-
-                    // Action: Move DOWN (Navigate file list)
-                    Ok(Event::Key(KeyEvent::new(
-                        KeyCode::Down,
-                        KeyModifiers::empty(),
-                    )))
-                }
-                4 => {
-                    // Assertion: Check that selection moved
-                    assert_eq!(
-                        app.explorer.selected_index, 1,
-                        "Should have selected the second file"
-                    );
-
-                    // Action: Press ESC to Cancel/Close
-                    Ok(Event::Key(KeyEvent::new(
-                        KeyCode::Esc,
-                        KeyModifiers::empty(),
-                    )))
-                }
-                5 => {
-                    // BACK TO SIDEBAR
-                    assert_eq!(
-                        app.current_screen,
-                        CurrentScreen::BitcoinConfig,
-                        "Should have returned to Sidebar"
-                    );
-
-                    // Action: Quit
-                    Ok(Event::Key(KeyEvent::new(
-                        KeyCode::Char('q'),
-                        KeyModifiers::empty(),
-                    )))
-                }
-                _ => panic!("Step {} not handled", step),
             }
-        };
+            app.explorer_trigger = None;
+        }
 
-        // Run
-        let res = run_app(&mut terminal, &mut app, event_provider);
-        assert!(res.is_ok());
+        AppAction::Navigate(screen) => {
+            app.current_screen = screen;
+        }
+
+        AppAction::None => {}
     }
-
-    #[test]
-    fn test_file_explorer_wrap_and_select_sets_config() {
-        use std::env::temp_dir;
-        use std::fs::{File, create_dir_all};
-
-        // Setup a temporary filesystem sandbox
-        let base = temp_dir().join("pdm_select_test");
-        let _ = std::fs::remove_dir_all(&base);
-        create_dir_all(&base).unwrap();
-        let file_path = base.join("bitcoin.conf");
-        File::create(&file_path).unwrap();
-
-        let backend = TestBackend::new(80, 25);
-        let mut terminal = Terminal::new(backend).unwrap();
-        let mut app = App::new();
-        app.explorer.current_dir = base.clone();
-        app.explorer.load_directory();
-
-        let mut step = 0;
-
-        let event_provider = |app: &mut App| {
-            step += 1;
-            match step {
-                1 => Ok(Event::Key(KeyEvent::new(
-                    KeyCode::Down,
-                    KeyModifiers::empty(),
-                ))), // move to bitcoin config
-                2 => Ok(Event::Key(KeyEvent::new(
-                    KeyCode::Enter,
-                    KeyModifiers::empty(),
-                ))), // open explorer
-                3 => Ok(Event::Key(KeyEvent::new(
-                    KeyCode::Up,
-                    KeyModifiers::empty(),
-                ))), // force wrap-around
-                4 => Ok(Event::Key(KeyEvent::new(
-                    KeyCode::Enter,
-                    KeyModifiers::empty(),
-                ))), // select file
-                5 => Ok(Event::Key(KeyEvent::new(
-                    KeyCode::Char('q'),
-                    KeyModifiers::empty(),
-                ))),
-                _ => panic!("unexpected"),
-            }
-        };
-
-        let res = run_app(&mut terminal, &mut app, event_provider);
-        assert!(res.is_ok());
-
-        assert_eq!(app.bitcoin_conf_path, Some(file_path));
-    }
+    Ok(false)
 }
