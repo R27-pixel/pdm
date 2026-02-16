@@ -20,6 +20,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     //  Sidebar
     let items = vec![
         ListItem::new("Home"),
+        ListItem::new("P2Pool Status"),
         ListItem::new("Bitcoin Config"),
         ListItem::new("P2Pool Config"),
     ];
@@ -43,6 +44,39 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                 .block(Block::default().borders(Borders::ALL).title(" Home "))
                 .wrap(Wrap { trim: true });
             f.render_widget(p, main_area);
+        }
+        CurrentScreen::P2PoolStatus => {
+            if let Some(metrics) = &app.node_metrics {
+                // We have live data!
+                let text = format!(
+                    "Node is ONLINE \n\n\
+                    Accepted Shares: {}\n\
+                    Rejected Shares: {}\n\
+                    Pool Difficulty: {}\n\
+                    Coinbase Total:  {}",
+                    metrics.shares_accepted,
+                    metrics.shares_rejected,
+                    metrics.pool_difficulty,
+                    metrics.coinbase_total
+                );
+
+                let p = Paragraph::new(text)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(" P2Pool Live Status "),
+                    )
+                    .style(Style::default().fg(Color::Green))
+                    .wrap(Wrap { trim: true });
+                f.render_widget(p, main_area);
+            } else {
+                // Waiting for data / config
+                let p = Paragraph::new("Waiting for node data...\n\nEnsure your p2pool-v2 node is running and the config is loaded.")
+                    .block(Block::default().borders(Borders::ALL).title(" P2Pool Live Status "))
+                    .style(Style::default().fg(Color::DarkGray))
+                    .wrap(Wrap { trim: true });
+                f.render_widget(p, main_area);
+            }
         }
         CurrentScreen::BitcoinConfig => {
             if app.bitcoin_conf_path.is_some() {

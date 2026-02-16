@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::components::file_explorer::FileExplorer;
+use crate::components::metrics::P2PoolMetrics;
 use crate::config::ConfigEntry as BitcoinEntry;
 use crate::p2poolv2_config_parser::ConfigEntry as P2PoolEntry;
 use std::path::PathBuf;
@@ -10,6 +11,7 @@ use std::path::PathBuf;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum CurrentScreen {
     Home,
+    P2PoolStatus,
     BitcoinConfig,
     P2PoolConfig,
     FileExplorer,
@@ -38,6 +40,7 @@ pub struct App {
     pub explorer_trigger: Option<CurrentScreen>,
     pub bitcoin_conf_path: Option<PathBuf>,
     pub p2pool_conf_path: Option<PathBuf>,
+    pub node_metrics: Option<P2PoolMetrics>,
     pub explorer: FileExplorer,
     pub p2pool_data: Vec<P2PoolEntry>,
     pub bitcoin_data: Vec<BitcoinEntry>,
@@ -51,6 +54,7 @@ impl App {
             explorer_trigger: None,
             bitcoin_conf_path: None,
             p2pool_conf_path: None,
+            node_metrics: None,
             explorer: FileExplorer::new(),
             p2pool_data: Vec::new(),
             bitcoin_data: Vec::new(),
@@ -61,8 +65,9 @@ impl App {
         // Logic to switch between sidebar items
         match self.sidebar_index {
             0 => self.current_screen = CurrentScreen::Home,
-            1 => self.current_screen = CurrentScreen::BitcoinConfig,
-            2 => self.current_screen = CurrentScreen::P2PoolConfig,
+            1 => self.current_screen = CurrentScreen::P2PoolStatus,
+            2 => self.current_screen = CurrentScreen::BitcoinConfig,
+            3 => self.current_screen = CurrentScreen::P2PoolConfig,
             _ => {}
         }
     }

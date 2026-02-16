@@ -4,6 +4,7 @@
 
 use pdm::app::AppAction;
 use pdm::app::{App, CurrentScreen};
+use pdm::components::metrics::P2PoolMetrics;
 use pdm::config::parse_config as parse_bitcoin_config;
 use pdm::p2poolv2_config_parser::parse_config as parse_p2pool_config;
 use pdm::ui;
@@ -16,8 +17,13 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::Backend, backend::CrosstermBackend};
 use std::io;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::sync::mpsc;
+use tokio::time::Duration;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Setup Terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -27,7 +33,47 @@ fn main() -> Result<()> {
 
     // Run App
     let mut app = App::new();
-    let res = run_app(&mut terminal, &mut app);
+    //  A shared thread-safe String for the API URL
+    let api_url = Arc::new(Mutex::new(Some(
+        "http://127.0.0.1:46884/metrics".to_string(),
+    )));
+    let api_url_clone = Arc::clone(&api_url);
+
+    //  A channel to send metrics from the background task to the UI
+    let (tx, mut rx) = mpsc::unbounded_channel::<P2PoolMetrics>();
+
+    //  Spawn the background fetcher task
+    tokio::spawn(async move {
+        let client = reqwest::Client::new();
+        loop {
+            // Check if we have a URL yet
+            let url = { api_url_clone.lock().await.clone() };
+
+            if let Some(u) = url {
+                // Fetch the metrics!
+                if let Ok(resp) = client.get(&u).send().await {
+                    if let Ok(text) = resp.text().await {
+                        let metrics = P2PoolMetrics::parse_prometheus(&text);
+                        // Send them to the UI thread
+                        let _ = tx.send(metrics);
+                    }
+                }
+            }
+            // Wait 2 seconds before polling again
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
+
+    // We use poll() with a 250ms timeout. If no key is pressed, we return None
+    // so the loop can continue and check for new metrics.
+    let res = run_app(&mut terminal, &mut app, api_url, &mut rx, |_| {
+        if event::poll(Duration::from_millis(250))? {
+            Ok(Some(event::read()?))
+        } else {
+            Ok(None)
+        }
+    })
+    .await;
 
     // Restore Terminal
     disable_raw_mode()?;
@@ -41,8 +87,21 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> {
+async fn run_app<B: Backend, F>(
+    terminal: &mut Terminal<B>,
+    app: &mut App,
+    api_url: Arc<Mutex<Option<String>>>,
+    rx: &mut mpsc::UnboundedReceiver<P2PoolMetrics>,
+    mut event_handler: F,
+) -> Result<()>
+where
+    F: FnMut(&mut App) -> Result<Option<Event>>,
+{
     loop {
+        // try_recv() reads from the channel instantly without blocking
+        while let Ok(metrics) = rx.try_recv() {
+            app.node_metrics = Some(metrics);
+        }
         terminal.draw(|f| ui::ui(f, app))?;
 
         if let Event::Key(key) = event::read()? {
@@ -75,7 +134,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     }
 
                     KeyCode::Down => {
-                        if app.sidebar_index < 2 {
+                        if app.sidebar_index < 3 {
                             app.sidebar_index += 1;
                             AppAction::ToggleMenu
                         } else {
@@ -96,7 +155,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                 },
             };
 
-            if handle_action(action, app)? {
+            if handle_action_with_url(action, app, &api_url).await? {
                 return Ok(());
             }
         }
@@ -155,6 +214,33 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
     }
 
     Ok(false)
+}
+
+async fn handle_action_with_url(
+    action: AppAction,
+    app: &mut App,
+    api_url: &Arc<Mutex<Option<String>>>,
+) -> anyhow::Result<bool> {
+    //  Run the normal action FIRST so the file is parsed
+    let should_quit = handle_action(action.clone(), app)?;
+
+    //  If the user manually loaded a config file, override the sensible default
+    if let AppAction::FileSelected(_) = action {
+        if app.current_screen == CurrentScreen::P2PoolConfig {
+            if let Some(config) = &app.p2pool_conf_path {
+                // dynamic override:
+                // let host = &config.api_host;
+                // let port = config.api_port;
+
+                let host = "127.0.0.1";
+                let port = 46884;
+                let dynamic_url = format!("http://{}:{}/metrics", host, port);
+                *api_url.lock().await = Some(dynamic_url);
+            }
+        }
+    }
+
+    Ok(should_quit)
 }
 
 #[cfg(test)]
