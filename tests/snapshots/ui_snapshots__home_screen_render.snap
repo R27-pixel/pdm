@@ -10,7 +10,7 @@ TestBackend {
             "│Home                   ││Welcome to PDM.                                      │",
             "│Bitcoin Config         ││                                                     │",
             "│P2Pool Config          ││Select a config from the sidebar to edit.            │",
-            "│                       ││                                                     │",
+            "│P2Pool Status          ││                                                     │",
             "│                       ││                                                     │",
             "│                       ││                                                     │",
             "│                       ││                                                     │",

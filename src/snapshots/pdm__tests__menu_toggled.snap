@@ -10,7 +10,7 @@ TestBackend {
             "│Home                   ││Press [Enter] to select a bitcoin.conf file          │",
             "│Bitcoin Config         ││                                                     │",
             "│P2Pool Config          ││                                                     │",
-            "│                       ││                                                     │",
+            "│P2Pool Status          ││                                                     │",
             "│                       ││                                                     │",
             "│                       ││                                                     │",
             "│                       ││                                                     │",

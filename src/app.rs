@@ -11,9 +11,9 @@ use std::path::PathBuf;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum CurrentScreen {
     Home,
-    P2PoolStatus,
     BitcoinConfig,
     P2PoolConfig,
+    P2PoolStatus,
     FileExplorer,
     Exiting,
 }
@@ -65,9 +65,9 @@ impl App {
         // Logic to switch between sidebar items
         match self.sidebar_index {
             0 => self.current_screen = CurrentScreen::Home,
-            1 => self.current_screen = CurrentScreen::P2PoolStatus,
-            2 => self.current_screen = CurrentScreen::BitcoinConfig,
-            3 => self.current_screen = CurrentScreen::P2PoolConfig,
+            1 => self.current_screen = CurrentScreen::BitcoinConfig,
+            2 => self.current_screen = CurrentScreen::P2PoolConfig,
+            3 => self.current_screen = CurrentScreen::P2PoolStatus,
             _ => {}
         }
     }

@@ -20,9 +20,9 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     //  Sidebar
     let items = vec![
         ListItem::new("Home"),
-        ListItem::new("P2Pool Status"),
         ListItem::new("Bitcoin Config"),
         ListItem::new("P2Pool Config"),
+        ListItem::new("P2Pool Status"),
     ];
 
     // Highlight the active one
@@ -44,6 +44,31 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                 .block(Block::default().borders(Borders::ALL).title(" Home "))
                 .wrap(Wrap { trim: true });
             f.render_widget(p, main_area);
+        }
+        CurrentScreen::BitcoinConfig => {
+            if app.bitcoin_conf_path.is_some() {
+                render_bitcoin_view(f, app, main_area);
+            } else {
+                let p = Paragraph::new("Press [Enter] to select a bitcoin.conf file").block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" Bitcoin Config "),
+                );
+                f.render_widget(p, main_area);
+            }
+        }
+
+        CurrentScreen::P2PoolConfig => {
+            if app.p2pool_conf_path.is_some() {
+                render_p2pool_view(f, app, main_area);
+            } else {
+                let p = Paragraph::new("Press [Enter] to select a p2poolv2 config file").block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" P2Pool Config "),
+                );
+                f.render_widget(p, main_area);
+            }
         }
         CurrentScreen::P2PoolStatus => {
             if let Some(metrics) = &app.node_metrics {
@@ -75,31 +100,6 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                     .block(Block::default().borders(Borders::ALL).title(" P2Pool Live Status "))
                     .style(Style::default().fg(Color::DarkGray))
                     .wrap(Wrap { trim: true });
-                f.render_widget(p, main_area);
-            }
-        }
-        CurrentScreen::BitcoinConfig => {
-            if app.bitcoin_conf_path.is_some() {
-                render_bitcoin_view(f, app, main_area);
-            } else {
-                let p = Paragraph::new("Press [Enter] to select a bitcoin.conf file").block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(" Bitcoin Config "),
-                );
-                f.render_widget(p, main_area);
-            }
-        }
-
-        CurrentScreen::P2PoolConfig => {
-            if app.p2pool_conf_path.is_some() {
-                render_p2pool_view(f, app, main_area);
-            } else {
-                let p = Paragraph::new("Press [Enter] to select a p2poolv2 config file").block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(" P2Pool Config "),
-                );
                 f.render_widget(p, main_area);
             }
         }
