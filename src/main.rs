@@ -246,8 +246,8 @@ async fn handle_action_with_url(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::backend::TestBackend;
     use pdm::components::metrics::P2PoolMetrics;
+    use ratatui::backend::TestBackend;
     use std::sync::Arc;
     use tokio::sync::Mutex;
     use tokio::sync::mpsc;
@@ -379,10 +379,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_action_with_url_updates_mutex() {
-
         let mut app = App::new();
         // Start with a test default URL
-        let api_url = Arc::new(Mutex::new(Some("http://default-host:9999/metrics".to_string())));
+        let api_url = Arc::new(Mutex::new(Some(
+            "http://default-host:9999/metrics".to_string(),
+        )));
 
         // Setup App state: Simulate the user opening the Explorer from P2PoolConfig
         app.explorer_trigger = Some(CurrentScreen::P2PoolConfig);
@@ -393,7 +394,9 @@ mod tests {
         let action = AppAction::FileSelected(fake_path);
 
         // Execute the wrapper function
-        let _ = handle_action_with_url(action, &mut app, &api_url).await.unwrap();
+        let _ = handle_action_with_url(action, &mut app, &api_url)
+            .await
+            .unwrap();
 
         // Check that the App navigated back to the config screen
         assert_eq!(app.current_screen, CurrentScreen::P2PoolConfig);
@@ -401,12 +404,14 @@ mod tests {
         // Check that the Mutex was updated with our new dynamic URL
         // (Currently hardcoded to 127.0.0.1:46884 in our logic until you map the struct fields)
         let updated_url = api_url.lock().await.clone();
-        assert_eq!(updated_url, Some("http://127.0.0.1:46884/metrics".to_string()));
+        assert_eq!(
+            updated_url,
+            Some("http://127.0.0.1:46884/metrics".to_string())
+        );
     }
 
     #[test]
     fn test_app_receives_metrics_from_channel() {
-
         let mut app = App::new();
         let (tx, mut rx) = mpsc::unbounded_channel::<P2PoolMetrics>();
 
