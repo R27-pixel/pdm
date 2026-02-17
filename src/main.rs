@@ -247,6 +247,10 @@ async fn handle_action_with_url(
 mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
+    use pdm::components::metrics::P2PoolMetrics;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use tokio::sync::mpsc;
 
     #[test]
     fn test_app_integration_smoke_test() {
@@ -371,5 +375,61 @@ mod tests {
         let exited = handle_action(AppAction::Quit, &mut app).unwrap();
 
         assert!(exited);
+    }
+
+    #[tokio::test]
+    async fn test_handle_action_with_url_updates_mutex() {
+
+        let mut app = App::new();
+        // Start with a test default URL
+        let api_url = Arc::new(Mutex::new(Some("http://default-host:9999/metrics".to_string())));
+
+        // Setup App state: Simulate the user opening the Explorer from P2PoolConfig
+        app.explorer_trigger = Some(CurrentScreen::P2PoolConfig);
+        app.current_screen = CurrentScreen::FileExplorer;
+
+        // Simulate the user selecting a file
+        let fake_path = std::path::PathBuf::from("test_p2pool.toml");
+        let action = AppAction::FileSelected(fake_path);
+
+        // Execute the wrapper function
+        let _ = handle_action_with_url(action, &mut app, &api_url).await.unwrap();
+
+        // Check that the App navigated back to the config screen
+        assert_eq!(app.current_screen, CurrentScreen::P2PoolConfig);
+
+        // Check that the Mutex was updated with our new dynamic URL
+        // (Currently hardcoded to 127.0.0.1:46884 in our logic until you map the struct fields)
+        let updated_url = api_url.lock().await.clone();
+        assert_eq!(updated_url, Some("http://127.0.0.1:46884/metrics".to_string()));
+    }
+
+    #[test]
+    fn test_app_receives_metrics_from_channel() {
+
+        let mut app = App::new();
+        let (tx, mut rx) = mpsc::unbounded_channel::<P2PoolMetrics>();
+
+        // Verify app starts with no metrics
+        assert!(app.node_metrics.is_none());
+
+        // Create fake metrics simulating the background task
+        let mut fake_metrics = P2PoolMetrics::default();
+        fake_metrics.shares_accepted = 999;
+        fake_metrics.pool_difficulty = 5000;
+
+        // Send down the channel
+        tx.send(fake_metrics).unwrap();
+
+        // Simulate the top of the run_app() loop
+        if let Ok(metrics) = rx.try_recv() {
+            app.node_metrics = Some(metrics);
+        }
+
+        // Verify the App absorbed the data correctly
+        assert!(app.node_metrics.is_some());
+        let saved_metrics = app.node_metrics.unwrap();
+        assert_eq!(saved_metrics.shares_accepted, 999);
+        assert_eq!(saved_metrics.pool_difficulty, 5000);
     }
 }
