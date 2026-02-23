@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use pdm::app::{App, CurrentScreen};
+use pdm::components::metrics::BitcoinMetrics;
+use pdm::config::parse_config;
 use pdm::ui;
 
 use anyhow::Result;
@@ -12,9 +14,13 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::Backend, backend::CrosstermBackend};
+use reqwest::Client;
 use std::io;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     //  Setup Terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -22,9 +28,61 @@ fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    //  Create channel for Bitcoin metrics
+    let (btc_tx, btc_rx) = mpsc::channel::<BitcoinMetrics>(16);
+
+    //  Shared RPC parameters (URL, user, pass)
+    let btc_rpc_params = Arc::new(Mutex::new(None::<(String, String, String)>));
+    let btc_rpc_params_task = btc_rpc_params.clone();
+
+    //  TESTING: Initialize with hardcoded test URL (comment out for production)
+    //  This allows testing the connection before loading a bitcoin.conf file
+    #[allow(unreachable_code)]
+    {
+        // Uncomment the line below to enable test mode
+        *btc_rpc_params.lock().unwrap() = Some((
+            "http://127.0.0.1:38332".to_string(),
+            "p2pool".to_string(),
+            "p2pool".to_string(),
+        ));
+    }
+
+    //  Spawn Bitcoin background worker task
+    tokio::spawn(async move {
+        let client = Client::new();
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+
+        loop {
+            interval.tick().await;
+
+            // Check if we have RPC parameters
+            let params = btc_rpc_params_task.lock().unwrap().clone();
+
+            if let Some((url, user, pass)) = params {
+                // Try to fetch metrics
+                match BitcoinMetrics::fetch(&client, &url, &user, &pass).await {
+                    Ok(metrics) => {
+                        // Send metrics through channel (ignore if receiver is gone)
+                        let _ = btc_tx.send(metrics).await;
+                    }
+                    Err(_) => {
+                        // Connection error - will retry next interval
+                    }
+                }
+            }
+        }
+    });
+
     //  Run App
     let mut app = App::new();
-    let res = run_app(&mut terminal, &mut app, |_app: &mut App| event::read());
+    let res = run_app(
+        &mut terminal,
+        &mut app,
+        btc_rx,
+        btc_rpc_params,
+        |_app: &mut App| event::read(),
+    )
+    .await;
 
     //  Restore Terminal
     disable_raw_mode()?;
@@ -39,9 +97,11 @@ fn main() -> Result<()> {
 }
 
 // Accept any Backend and an Event Provider Closure
-fn run_app<B: Backend, F>(
+async fn run_app<B: Backend, F>(
     terminal: &mut Terminal<B>,
     app: &mut App,
+    mut btc_rx: mpsc::Receiver<BitcoinMetrics>,
+    btc_rpc_params: Arc<Mutex<Option<(String, String, String)>>>,
     mut event_provider: F,
 ) -> io::Result<()>
 where
@@ -49,6 +109,11 @@ where
 {
     loop {
         terminal.draw(|f| ui::ui(f, app))?;
+
+        // Check for metrics updates from the Bitcoin background worker
+        while let Ok(metrics) = btc_rx.try_recv() {
+            app.bitcoin_metrics = Some(metrics);
+        }
 
         // We check the event from our provider
         if let Event::Key(key) = event_provider(app)?
@@ -66,7 +131,21 @@ where
                     KeyCode::Enter => {
                         if let Some(path) = app.explorer.select() {
                             // File Selected!
-                            app.bitcoin_conf_path = Some(path);
+                            app.bitcoin_conf_path = Some(path.clone());
+                            // Parse and save the typed struct
+                            if let Ok((bitcoin_config, _)) = parse_config(&path) {
+                                app.bitcoin_config = Some(bitcoin_config.clone());
+
+                                // Extract RPC credentials and populate the shared params
+                                let user = bitcoin_config.rpc.rpcuser.clone().unwrap_or_default();
+                                let pass =
+                                    bitcoin_config.rpc.rpcpassword.clone().unwrap_or_default();
+                                let port = bitcoin_config.rpc.rpcport.unwrap_or(8332); // mainnet default
+                                let rpc_url = format!("http://127.0.0.1:{}", port);
+
+                                // Update the shared RPC parameters for the background task
+                                *btc_rpc_params.lock().unwrap() = Some((rpc_url, user, pass));
+                            }
                             app.toggle_menu(); // Go back to main screen
                         }
                     }
@@ -82,7 +161,7 @@ where
                         }
                     }
                     KeyCode::Down => {
-                        if app.sidebar_index < 1 {
+                        if app.sidebar_index < 4 {
                             app.sidebar_index += 1;
                             app.toggle_menu();
                         }
@@ -100,14 +179,35 @@ where
     }
 }
 
+// AppAction enum to track file selections
+#[derive(Clone, Debug)]
+pub enum AppAction {
+    FileSelected(std::path::PathBuf),
+}
+
+// Handle actions with URL/param updates
+fn handle_action(action: AppAction, app: &mut App) -> anyhow::Result<bool> {
+    match action {
+        AppAction::FileSelected(path) => {
+            app.bitcoin_conf_path = Some(path.clone());
+            // Parse and save the typed struct
+            if let Ok((bitcoin_config, _)) = parse_config(&path) {
+                app.bitcoin_config = Some(bitcoin_config);
+            }
+            app.toggle_menu(); // Go back to main screen
+        }
+    }
+    Ok(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crossterm::event::{KeyEvent, KeyEventState, KeyModifiers};
     use ratatui::backend::TestBackend;
 
-    #[test]
-    fn test_app_integration_smoke_test() {
+    #[tokio::test]
+    async fn test_app_integration_smoke_test() {
         let backend = TestBackend::new(80, 25);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut app = App::new();
@@ -133,12 +233,23 @@ mod tests {
             }
         };
 
+        // Create channel for metrics
+        let (_btc_tx, btc_rx) = mpsc::channel::<BitcoinMetrics>(16);
+        let btc_rpc_params = Arc::new(Mutex::new(None::<(String, String, String)>));
+
         // First frame
         terminal.draw(|f| ui::ui(f, &mut app)).unwrap();
         insta::assert_debug_snapshot!("home_screen", terminal.backend());
 
         // Run app (process events + redraws)
-        let res = run_app(&mut terminal, &mut app, event_provider);
+        let res = run_app(
+            &mut terminal,
+            &mut app,
+            btc_rx,
+            btc_rpc_params,
+            event_provider,
+        )
+        .await;
         assert!(res.is_ok());
 
         // Final frame after DOWN
@@ -147,8 +258,8 @@ mod tests {
         assert_eq!(app.sidebar_index, 1);
     }
 
-    #[test]
-    fn test_file_explorer_flow() {
+    #[tokio::test]
+    async fn test_file_explorer_flow() {
         // Setup
         let backend = TestBackend::new(80, 25);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -220,13 +331,24 @@ mod tests {
             }
         };
 
+        // Create channel for metrics
+        let (_btc_tx, btc_rx) = mpsc::channel::<BitcoinMetrics>(16);
+        let btc_rpc_params = Arc::new(Mutex::new(None::<(String, String, String)>));
+
         // Run
-        let res = run_app(&mut terminal, &mut app, event_provider);
+        let res = run_app(
+            &mut terminal,
+            &mut app,
+            btc_rx,
+            btc_rpc_params,
+            event_provider,
+        )
+        .await;
         assert!(res.is_ok());
     }
 
-    #[test]
-    fn test_file_explorer_wrap_and_select_sets_config() {
+    #[tokio::test]
+    async fn test_file_explorer_wrap_and_select_sets_config() {
         use std::env::temp_dir;
         use std::fs::{File, create_dir_all};
 
@@ -272,7 +394,18 @@ mod tests {
             }
         };
 
-        let res = run_app(&mut terminal, &mut app, event_provider);
+        // Create channel for metrics
+        let (_btc_tx, btc_rx) = mpsc::channel::<BitcoinMetrics>(16);
+        let btc_rpc_params = Arc::new(Mutex::new(None::<(String, String, String)>));
+
+        let res = run_app(
+            &mut terminal,
+            &mut app,
+            btc_rx,
+            btc_rpc_params,
+            event_provider,
+        )
+        .await;
         assert!(res.is_ok());
 
         assert_eq!(app.bitcoin_conf_path, Some(file_path));

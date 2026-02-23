@@ -18,7 +18,11 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         .split(f.area());
 
     //  Sidebar
-    let items = vec![ListItem::new("Home"), ListItem::new("Bitcoin Config")];
+    let items = vec![
+        ListItem::new("Home"),
+        ListItem::new("Bitcoin Config"),
+        ListItem::new("Bitcoin Status"),
+    ];
 
     // Highlight the active one
     let mut state = ListState::default();
@@ -56,6 +60,51 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                     .title(" Bitcoin Config "),
             );
             f.render_widget(p, main_area);
+        }
+        CurrentScreen::BitcoinStatus => {
+            if let Some(metrics) = &app.bitcoin_metrics {
+                let sync_pct = metrics.verification_progress * 100.0;
+
+                let text = format!(
+                    " Bitcoin Core is ONLINE \n\n\
+                    Network:     {}\n\
+                    Blocks:      {}\n\
+                    Headers:     {}\n\
+                    Sync Status: {:.2}%\n\
+                    Connections: {}",
+                    metrics.chain.to_uppercase(),
+                    metrics.blocks,
+                    metrics.headers,
+                    sync_pct,
+                    metrics.connections
+                );
+
+                let p = Paragraph::new(text)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(" Bitcoin Node Live Status "),
+                    )
+                    .style(Style::default().fg(Color::Yellow))
+                    .wrap(Wrap { trim: true });
+                f.render_widget(p, main_area);
+            } else {
+                // Waiting for data / config
+                let p = Paragraph::new(
+                    "Waiting for RPC data...\n\n\
+                    • Load bitcoin.conf via 'Bitcoin Config' tab\n\n\
+                    For testing: Uncomment the hardcoded URL in main.rs \
+                    and ensure Bitcoin Core is running on 127.0.0.1:38332",
+                )
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" Bitcoin Node Live Status "),
+                )
+                .style(Style::default().fg(Color::DarkGray))
+                .wrap(Wrap { trim: true });
+                f.render_widget(p, main_area);
+            }
         }
         CurrentScreen::FileExplorer => {
             render_file_explorer(f, app, main_area);

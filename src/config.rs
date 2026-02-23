@@ -7,7 +7,7 @@ use config::{Config, File, FileFormat};
 use std::{collections::HashSet, path::Path};
 
 /// Core Config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Core {
     // Data directory and storage
     pub datadir: Option<String>,
@@ -55,7 +55,7 @@ pub struct Core {
 }
 
 /// Network Config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Network {
     // Chain selection
     pub chain: Option<String>,
@@ -128,7 +128,7 @@ pub struct Network {
 }
 
 /// RPC Config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RPC {
     // Server enable
     pub server: Option<bool>,
@@ -159,7 +159,7 @@ pub struct RPC {
 }
 
 /// Wallet related config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Wallet {
     // Enable/disable
     pub disablewallet: Option<bool>,
@@ -200,7 +200,7 @@ pub struct Wallet {
 }
 
 /// Debugging related config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Debugging {
     // Debug categories
     pub debug: Option<String>,
@@ -222,7 +222,7 @@ pub struct Debugging {
 }
 
 /// Mining related config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Mining {
     // Block creation
     pub blockmaxweight: Option<u32>,
@@ -230,7 +230,7 @@ pub struct Mining {
 }
 
 /// Relay related config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Relay {
     // Relay fees
     pub minrelaytxfee: Option<String>,
@@ -248,7 +248,7 @@ pub struct Relay {
 }
 
 /// ZMQ related config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ZMQ {
     // Hash notifications
     pub zmqpubhashblock: Option<String>,
@@ -262,7 +262,7 @@ pub struct ZMQ {
     pub zmqpubsequence: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BitcoinConfig {
     pub core: Core,
     pub network: Network,
@@ -275,8 +275,9 @@ pub struct BitcoinConfig {
 }
 
 /// Type of a configuration option value
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConfigType {
+    #[default]
     Bool,
     Int,
     Float,
@@ -286,8 +287,9 @@ pub enum ConfigType {
 }
 
 /// Category of a configuration option
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConfigCategory {
+    #[default]
     Core,
     Network,
     RPC,
@@ -299,7 +301,7 @@ pub enum ConfigCategory {
 }
 
 /// Schema for a single configuration option
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ConfigSchema {
     pub key: String,
     pub default: String,
@@ -327,7 +329,7 @@ impl ConfigSchema {
 }
 
 /// A parsed configuration entry
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ConfigEntry {
     pub key: String,
     pub value: String,
@@ -1232,11 +1234,14 @@ pub fn get_default_schema() -> Vec<ConfigSchema> {
 }
 
 /// Parse bitcoin.conf file
-pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
+pub fn parse_config(path: &Path) -> Result<(BitcoinConfig, Vec<ConfigEntry>)> {
     let schema_list = get_default_schema();
     let mut entries = Vec::new();
     let mut found_keys: HashSet<String> = HashSet::new();
     let mut builder = Config::builder();
+
+    // Create an empty config to fill up
+    let mut typed_config = BitcoinConfig::default();
 
     if path.exists() {
         builder = builder.add_source(File::from(path).format(FileFormat::Ini));
@@ -1254,7 +1259,7 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
                     enabled: false,
                 });
             }
-            return Ok(entries);
+            return Ok((typed_config, entries));
         }
     };
 
@@ -1325,6 +1330,17 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
             }
         }
 
+        if enabled {
+            match key.as_str() {
+                "rpcuser" => typed_config.rpc.rpcuser = Some(value.clone()),
+                "rpcpassword" => typed_config.rpc.rpcpassword = Some(value.clone()),
+                "rpcport" => typed_config.rpc.rpcport = value.parse::<u32>().ok(),
+                "rpcbind" => typed_config.rpc.rpcbind = Some(value.clone()),
+                "chain" => typed_config.network.chain = Some(value.clone()),
+                _ => {}
+            }
+        }
+
         entries.push(ConfigEntry {
             key: key.clone(),
             value,
@@ -1376,7 +1392,7 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
         }
     }
 
-    Ok(entries)
+    Ok((typed_config, entries))
 }
 
 #[cfg(test)]
@@ -1507,7 +1523,7 @@ mod tests {
     #[test]
     fn parse_config_non_existent_file_returns_defaults() {
         let path = Path::new("/non/existent/path/bitcoin.conf");
-        let entries = parse_config(path).unwrap();
+        let (_, entries) = parse_config(path).unwrap();
 
         assert!(!entries.is_empty());
 
@@ -1521,7 +1537,7 @@ mod tests {
     #[test]
     fn parse_config_empty_file_returns_defaults() {
         let (_dir, path) = create_temp_config("");
-        let entries = parse_config(&path).unwrap();
+        let (_, entries) = parse_config(&path).unwrap();
 
         assert!(!entries.is_empty());
 
@@ -1533,7 +1549,7 @@ mod tests {
     #[test]
     fn parse_config_parses_bool_values() {
         let (_dir, path) = create_temp_config("txindex=1\nserver=0\n");
-        let entries = parse_config(&path).unwrap();
+        let (_, entries) = parse_config(&path).unwrap();
 
         let txindex = entries.iter().find(|e| e.key == "txindex").unwrap();
         assert_eq!(txindex.value, "1");
@@ -1547,7 +1563,7 @@ mod tests {
     #[test]
     fn parse_config_parses_int_values() {
         let (_dir, path) = create_temp_config("dbcache=1000\nport=8334\n");
-        let entries = parse_config(&path).unwrap();
+        let (_, entries) = parse_config(&path).unwrap();
 
         let dbcache = entries.iter().find(|e| e.key == "dbcache").unwrap();
         assert_eq!(dbcache.value, "1000");
@@ -1561,7 +1577,7 @@ mod tests {
     #[test]
     fn parse_config_parses_string_values() {
         let (_dir, path) = create_temp_config("rpcuser=myuser\nrpcpassword=mypassword\n");
-        let entries = parse_config(&path).unwrap();
+        let (_, entries) = parse_config(&path).unwrap();
 
         let rpcuser = entries.iter().find(|e| e.key == "rpcuser").unwrap();
         assert_eq!(rpcuser.value, "myuser");
@@ -1575,7 +1591,7 @@ mod tests {
     #[test]
     fn parse_config_parses_path_values() {
         let (_dir, path) = create_temp_config("datadir=/home/user/.bitcoin\n");
-        let entries = parse_config(&path).unwrap();
+        let (_, entries) = parse_config(&path).unwrap();
 
         let datadir = entries.iter().find(|e| e.key == "datadir").unwrap();
         assert_eq!(datadir.value, "/home/user/.bitcoin");
@@ -1585,7 +1601,7 @@ mod tests {
     #[test]
     fn parse_config_parses_address_values() {
         let (_dir, path) = create_temp_config("zmqpubhashblock=tcp://127.0.0.1:28332\n");
-        let entries = parse_config(&path).unwrap();
+        let (_, entries) = parse_config(&path).unwrap();
 
         let zmq = entries.iter().find(|e| e.key == "zmqpubhashblock").unwrap();
         assert_eq!(zmq.value, "tcp://127.0.0.1:28332");
@@ -1596,7 +1612,7 @@ mod tests {
     fn parse_config_handles_unknown_keys() {
         // Use a section to ensure the config crate parses the key properly
         let (_dir, path) = create_temp_config("[main]\nunknownkey=unknownvalue\n");
-        let entries = parse_config(&path).unwrap();
+        let (_, entries) = parse_config(&path).unwrap();
 
         let unknown = entries.iter().find(|e| e.key == "unknownkey");
         assert!(
@@ -1620,7 +1636,7 @@ rpcport=8332
 rpcport=18332
 "#;
         let (_dir, path) = create_temp_config(content);
-        let entries = parse_config(&path).unwrap();
+        let (_, entries) = parse_config(&path).unwrap();
 
         // Should find rpcport with first matching section value
         let rpcport = entries.iter().find(|e| e.key == "rpcport").unwrap();
@@ -1630,7 +1646,7 @@ rpcport=18332
     #[test]
     fn parse_config_preserves_schema_info() {
         let (_dir, path) = create_temp_config("txindex=1\n");
-        let entries = parse_config(&path).unwrap();
+        let (_, entries) = parse_config(&path).unwrap();
 
         let txindex = entries.iter().find(|e| e.key == "txindex").unwrap();
         assert!(txindex.schema.is_some());
@@ -1644,7 +1660,7 @@ rpcport=18332
     #[test]
     fn parse_config_uses_defaults_for_unset_options() {
         let (_dir, path) = create_temp_config("txindex=1\n");
-        let entries = parse_config(&path).unwrap();
+        let (_, entries) = parse_config(&path).unwrap();
 
         // dbcache should have default value since not set
         let dbcache = entries.iter().find(|e| e.key == "dbcache").unwrap();
@@ -1661,7 +1677,7 @@ txindex=1
 server=1
 "#;
         let (_dir, path) = create_temp_config(content);
-        let entries = parse_config(&path).unwrap();
+        let (_, entries) = parse_config(&path).unwrap();
 
         let txindex = entries.iter().find(|e| e.key == "txindex").unwrap();
         assert_eq!(txindex.value, "1");
@@ -1699,7 +1715,7 @@ zmqpubhashblock=tcp://127.0.0.1:28332
 zmqpubhashtx=tcp://127.0.0.1:28333
 "#;
         let (_dir, path) = create_temp_config(content);
-        let entries = parse_config(&path).unwrap();
+        let (_, entries) = parse_config(&path).unwrap();
 
         // Verify various entries
         let testnet = entries.iter().find(|e| e.key == "testnet").unwrap();
