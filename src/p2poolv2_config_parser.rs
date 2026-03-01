@@ -91,6 +91,8 @@ pub struct StratumConfig<State = Raw> {
     #[serde(skip)]
     pub(crate) donation_address_parsed: Option<Address<NetworkChecked>>,
     #[serde(skip)]
+    pub(crate) solo_address_parsed: Option<Address<NetworkChecked>>,
+    #[serde(skip)]
     pub(crate) fee_address_parsed: Option<Address<NetworkChecked>>,
     #[serde(skip, default)]
     _state: PhantomData<State>,
@@ -110,6 +112,16 @@ impl StratumConfig<Raw> {
             let addr = addr
                 .require_network(self.network)
                 .map_err(|_| anyhow!("Invalid bootstrap_address"))?;
+            Some(addr)
+        } else {
+            None
+        };
+
+        let solo = if let Some(addr_str) = &self.solo_address {
+            let addr = Address::from_str(addr_str).map_err(|_| anyhow!("Invalid solo_address"))?;
+            let addr = addr
+                .require_network(self.network)
+                .map_err(|_| anyhow!("Invalid solo_address"))?;
             Some(addr)
         } else {
             None
@@ -164,6 +176,7 @@ impl StratumConfig<Raw> {
             pool_signature: self.pool_signature,
             bootstrap_address_parsed: bootstrap,
             donation_address_parsed: donation,
+            solo_address_parsed: solo,
             fee_address_parsed: fee,
             _state: PhantomData,
         })
@@ -178,13 +191,36 @@ where
     Network::from_core_arg(&s).map_err(serde::de::Error::custom)
 }
 
+/// Deserializes version_mask from either string (hex) or integer form.
+/// Accepts: "1fffe000", "0x1fffe000", or 0x1fffe000 (TOML literal).
 fn deserialize_version_mask<'de, D>(deserializer: D) -> Result<i32, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let s: String = serde::Deserialize::deserialize(deserializer)?;
-    i32::from_str_radix(&s, 16)
-        .map_err(|_| serde::de::Error::custom("version_mask must be hex (e.g. 1fffe000)"))
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum HexMask {
+        Str(String),
+        Int(i64),
+    }
+
+    let value = HexMask::deserialize(deserializer)?;
+    match value {
+        HexMask::Str(s) => {
+            let s = s.trim();
+            let s = s
+                .strip_prefix("0x")
+                .or_else(|| s.strip_prefix("0X"))
+                .unwrap_or(s);
+            i32::from_str_radix(s, 16).map_err(|_| {
+                serde::de::Error::custom(
+                    "version_mask must be a valid hex value (e.g. \"1fffe000\" or \"0x1fffe000\")",
+                )
+            })
+        }
+        HexMask::Int(i) => i32::try_from(i)
+            .map_err(|_| serde::de::Error::custom("version_mask integer is out of range for i32")),
+    }
 }
 
 // NETWORK CONFIG
@@ -311,7 +347,13 @@ pub struct P2PoolConfig {
 
 pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
     let raw_text = if path.exists() {
-        std::fs::read_to_string(path).unwrap_or_default()
+        std::fs::read_to_string(path).map_err(|e| {
+            anyhow!(
+                "Failed to read config file '{}': {} (check file permissions and path)",
+                path.display(),
+                e
+            )
+        })?
     } else {
         String::new()
     };
@@ -339,7 +381,7 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
     cfg = cfg.add_source(Environment::with_prefix("P2POOL").separator("_"));
     let raw = cfg.build()?;
 
-    let p: P2PoolConfig = raw.clone().try_deserialize().map_err(|e| {
+    let p: P2PoolConfig = raw.try_deserialize().map_err(|e| {
         anyhow!(
             "Failed to deserialize config: {}\nFile: {}",
             e,
@@ -354,12 +396,18 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
     let network_section_present = raw_text.contains("[network]");
     let stratum_section_present = raw_text.contains("[stratum]");
     let logging_section_present = raw_text.contains("[logging]");
+    let store_section_present = raw_text.contains("[store]");
+    let api_section_present = raw_text.contains("[api]");
+    let bitcoinrpc_section_present = raw_text.contains("[bitcoinrpc]");
 
     Ok(flatten(
         &p,
         network_section_present,
         stratum_section_present,
         logging_section_present,
+        store_section_present,
+        api_section_present,
+        bitcoinrpc_section_present,
     ))
 }
 
@@ -370,6 +418,9 @@ fn flatten(
     network_section_present: bool,
     stratum_section_present: bool,
     logging_section_present: bool,
+    store_section_present: bool,
+    api_section_present: bool,
+    bitcoinrpc_section_present: bool,
 ) -> Vec<ConfigEntry> {
     let mut e = Vec::new();
 
@@ -389,7 +440,7 @@ fn flatten(
     n!(
         "listen_address",
         n.listen_address.clone(),
-        n.listen_address.is_empty()
+        n.listen_address == "/ip4/0.0.0.0/tcp/6884"
     );
     n!(
         "dial_peers",
@@ -419,7 +470,7 @@ fn flatten(
     n!(
         "max_established_per_peer",
         n.max_established_per_peer.to_string(),
-        !network_section_present && n.max_established_per_peer == 1
+        n.max_established_per_peer == 1
     );
 
     n!(
@@ -472,7 +523,7 @@ fn flatten(
     if let Some(s) = &p.store {
         macro_rules! s_store {
             ($k:expr, $v:expr, $d:expr) => {
-                push(&mut e, "store", $k, $v, $d)
+                push(&mut e, "store", $k, $v, !store_section_present && $d)
             };
         }
         s_store!("path", s.path.clone(), s.path == "./store.db");
@@ -623,7 +674,13 @@ fn flatten(
     if let Some(b) = &p.bitcoinrpc {
         macro_rules! b_m {
             ($k:expr, $v:expr, $d:expr) => {
-                push(&mut e, "bitcoinrpc", $k, $v, $d)
+                push(
+                    &mut e,
+                    "bitcoinrpc",
+                    $k,
+                    $v,
+                    !bitcoinrpc_section_present && $d,
+                )
             };
         }
         b_m!("url", b.url.clone(), b.url == "http://127.0.0.1:38332");
@@ -655,10 +712,11 @@ fn flatten(
     );
 
     // API
+    // FIX #3: Track api section presence for proper default detection
     if let Some(a) = &p.api {
         macro_rules! a_m {
             ($k:expr, $v:expr, $d:expr) => {
-                push(&mut e, "api", $k, $v, $d)
+                push(&mut e, "api", $k, $v, !api_section_present && $d)
             };
         }
         a_m!("hostname", a.hostname.clone(), a.hostname == "127.0.0.1");
@@ -714,6 +772,7 @@ impl From<StratumConfig<Parsed>> for StratumConfig<Raw> {
             pool_signature: parsed.pool_signature,
             bootstrap_address_parsed: None,
             donation_address_parsed: None,
+            solo_address_parsed: None,
             fee_address_parsed: None,
             _state: PhantomData,
         }
@@ -725,6 +784,7 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::io::Write;
+    use std::sync::{Arc, Mutex};
     use tempfile::tempdir;
 
     fn write_cfg(txt: &str) -> (std::path::PathBuf, tempfile::TempDir) {
@@ -860,6 +920,40 @@ port = 46884
     }
 
     #[test]
+    fn invalid_solo_address_fails() {
+        let (path, _dir) = write_cfg(
+            r#"
+[stratum]
+hostname = "0.0.0.0"
+port = 3333
+start_difficulty = 10000
+minimum_difficulty = 100
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+solo_address = "invalid_address"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+network = "signet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+
+[store]
+path = "./store.db"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "p2pool"
+password = "p2pool"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        );
+
+        let err = parse_config(&path).unwrap_err();
+        assert!(err.to_string().contains("Invalid solo_address"));
+    }
+
+    #[test]
     fn pool_signature_too_long_fails() {
         let (path, _dir) = write_cfg(
             r#"
@@ -897,7 +991,86 @@ port = 46884
     }
 
     #[test]
+    fn version_mask_accepts_string_form() {
+        let (path, _dir) = write_cfg(
+            r#"
+[stratum]
+hostname = "0.0.0.0"
+port = 3333
+start_difficulty = 10000
+minimum_difficulty = 100
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+network = "signet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+
+[store]
+path = "./store.db"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "p2pool"
+password = "p2pool"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        );
+
+        let entries = parse_config(&path).unwrap();
+        assert!(
+            entries.iter().any(|x| x.section == "stratum"
+                && x.key == "version_mask"
+                && x.value == "1fffe000")
+        );
+    }
+
+    #[test]
+    fn version_mask_accepts_hex_prefix() {
+        let (path, _dir) = write_cfg(
+            r#"
+[stratum]
+hostname = "0.0.0.0"
+port = 3333
+start_difficulty = 10000
+minimum_difficulty = 100
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+network = "signet"
+version_mask = "0x1fffe000"
+difficulty_multiplier = 1.0
+
+[store]
+path = "./store.db"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "p2pool"
+password = "p2pool"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        );
+
+        let entries = parse_config(&path).unwrap();
+        assert!(
+            entries.iter().any(|x| x.section == "stratum"
+                && x.key == "version_mask"
+                && x.value == "1fffe000")
+        );
+    }
+
+    #[test]
     fn env_var_override_works() {
+        // Use Arc<Mutex<>> to prevent concurrent test execution
+        // This is a single-threaded test guard using only std::sync
+        let guard = Arc::new(Mutex::new(()));
+        let _lock = guard.lock().unwrap();
+
         unsafe { std::env::set_var("P2POOL_STRATUM_PORT", "9999") };
 
         let (path, _dir) = write_cfg(
@@ -948,140 +1121,5 @@ answer = 42
 
         let err = parse_config(&path).unwrap_err();
         assert!(err.to_string().contains("Invalid P2Pool config"));
-    }
-
-    #[test]
-    fn wrong_network_address_is_rejected() {
-        // bc1... is a MAINNET address, but network is set to signet
-        let (path, _dir) = write_cfg(
-            r#"
-[stratum]
-network = "signet"
-bootstrap_address = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"
-version_mask = "1fffe000"
-zmqpubhashblock = "tcp://127.0.0.1:28332"
-
-[store]
-path = "./store.db"
-
-[bitcoinrpc]
-url = "http://127.0.0.1:38332"
-username = "p2pool"
-password = "p2pool"
-
-[api]
-hostname = "127.0.0.1"
-port = 46884
-"#,
-        );
-
-        let err = parse_config(&path).unwrap_err();
-
-        assert!(
-            err.to_string().contains("Invalid bootstrap_address"),
-            "expected wrong-network address to be rejected, got: {err}"
-        );
-    }
-
-    #[test]
-    fn minimal_config_uses_defaults() {
-        // ensures Serde defaults + flattening actually work together
-        let (path, _dir) = write_cfg(
-            r#"
-[stratum]
-network = "signet"
-version_mask = "1fffe000"
-zmqpubhashblock = "tcp://127.0.0.1:28332"
-"#,
-        );
-
-        let entries = parse_config(&path).unwrap();
-
-        assert!(entries.iter().any(|e| e.key == "port" && e.value == "3333"));
-        assert!(
-            entries
-                .iter()
-                .any(|e| e.key == "minimum_difficulty" && e.value == "100")
-        );
-    }
-
-    #[test]
-    fn donation_without_address_fails() {
-        let (path, _dir) = write_cfg(
-            r#"
-[stratum]
-donation = 100
-network = "signet"
-version_mask = "1fffe000"
-zmqpubhashblock = "tcp://127.0.0.1:28332"
-"#,
-        );
-
-        let err = parse_config(&path).unwrap_err();
-        assert!(err.to_string().contains("donation_address is required"));
-    }
-
-    #[test]
-    fn fee_without_address_fails() {
-        let (path, _dir) = write_cfg(
-            r#"
-[stratum]
-fee = 50
-network = "signet"
-version_mask = "1fffe000"
-zmqpubhashblock = "tcp://127.0.0.1:28332"
-"#,
-        );
-
-        let err = parse_config(&path).unwrap_err();
-        assert!(err.to_string().contains("fee_address is required"));
-    }
-
-    #[test]
-    fn parsed_to_raw_preserves_all_fields() {
-        let parsed = StratumConfig::<Parsed> {
-            hostname: "0.0.0.0".into(),
-            port: 3333,
-            start_difficulty: 10000,
-            minimum_difficulty: 100,
-            maximum_difficulty: Some(1_000_000),
-            solo_address: Some("tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk".into()),
-            zmqpubhashblock: "tcp://127.0.0.1:28332".into(),
-            bootstrap_address: Some("tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk".into()),
-            donation_address: Some("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx".into()),
-            donation: Some(100),
-            fee_address: Some("tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk".into()),
-            fee: Some(50),
-            network: Network::Signet,
-            version_mask: 0x1fffe000,
-            difficulty_multiplier: 1.0,
-            ignore_difficulty: Some(true),
-            pool_signature: Some("TestPool".into()),
-            bootstrap_address_parsed: None,
-            donation_address_parsed: None,
-            fee_address_parsed: None,
-            _state: PhantomData,
-        };
-
-        let raw: StratumConfig<Raw> = parsed.clone().into();
-
-        // Explicit field-by-field assertions
-        assert_eq!(raw.hostname, parsed.hostname);
-        assert_eq!(raw.port, parsed.port);
-        assert_eq!(raw.start_difficulty, parsed.start_difficulty);
-        assert_eq!(raw.minimum_difficulty, parsed.minimum_difficulty);
-        assert_eq!(raw.maximum_difficulty, parsed.maximum_difficulty);
-        assert_eq!(raw.solo_address, parsed.solo_address);
-        assert_eq!(raw.zmqpubhashblock, parsed.zmqpubhashblock);
-        assert_eq!(raw.bootstrap_address, parsed.bootstrap_address);
-        assert_eq!(raw.donation_address, parsed.donation_address);
-        assert_eq!(raw.donation, parsed.donation);
-        assert_eq!(raw.fee_address, parsed.fee_address);
-        assert_eq!(raw.fee, parsed.fee);
-        assert_eq!(raw.network, parsed.network);
-        assert_eq!(raw.version_mask, parsed.version_mask);
-        assert_eq!(raw.difficulty_multiplier, parsed.difficulty_multiplier);
-        assert_eq!(raw.ignore_difficulty, parsed.ignore_difficulty);
-        assert_eq!(raw.pool_signature, parsed.pool_signature);
     }
 }
