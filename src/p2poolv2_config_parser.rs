@@ -1119,6 +1119,7 @@ answer = 42
         let err = parse_config(&path).unwrap_err();
         assert!(err.to_string().contains("Invalid P2Pool config"));
     }
+
     #[test]
     fn parsed_to_raw_preserves_all_fields() {
         let parsed = StratumConfig::<Parsed> {
@@ -1163,5 +1164,234 @@ answer = 42
         assert_eq!(raw.difficulty_multiplier, parsed.difficulty_multiplier);
         assert_eq!(raw.ignore_difficulty, parsed.ignore_difficulty);
         assert_eq!(raw.pool_signature, parsed.pool_signature);
+    }
+
+    #[test]
+    fn donation_without_address_fails() {
+        let (path, _dir) = write_cfg(
+            r#"
+[stratum]
+hostname = "0.0.0.0"
+port = 3333
+start_difficulty = 10000
+minimum_difficulty = 100
+donation = 100
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+network = "signet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+
+[store]
+path = "./store.db"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "p2pool"
+password = "p2pool"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        );
+
+        let err = parse_config(&path).unwrap_err();
+        assert!(err.to_string().contains("donation_address is required"));
+    }
+
+    #[test]
+    fn invalid_miner_pubkey_is_flagged() {
+        let (path, _dir) = write_cfg(
+            r#"
+[miner]
+pubkey = "invalid"
+"#,
+        );
+
+        let entries = parse_config(&path).unwrap();
+        assert!(
+            entries
+                .iter()
+                .any(|x| x.section == "miner" && x.value == "<invalid pubkey>")
+        );
+    }
+
+    #[test]
+    fn env_only_config_is_accepted() {
+        let _lock = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+        unsafe { std::env::set_var("P2POOL_STRATUM_PORT", "9999") };
+
+        let path = std::path::PathBuf::from("nonexistent.toml");
+
+        let result = parse_config(&path);
+        assert!(result.is_ok());
+
+        unsafe { std::env::remove_var("P2POOL_STRATUM_PORT") };
+    }
+
+    #[test]
+    fn fee_without_address_fails() {
+        let (path, _dir) = write_cfg(
+            r#"
+[stratum]
+hostname = "0.0.0.0"
+port = 3333
+start_difficulty = 10000
+minimum_difficulty = 100
+fee = 50
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+network = "signet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+
+[store]
+path = "./store.db"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "p2pool"
+password = "p2pool"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        );
+
+        let err = parse_config(&path).unwrap_err();
+        assert!(err.to_string().contains("fee_address is required"));
+    }
+
+    #[test]
+    fn invalid_network_fails() {
+        let (path, _dir) = write_cfg(
+            r#"
+[stratum]
+hostname = "0.0.0.0"
+port = 3333
+start_difficulty = 10000
+minimum_difficulty = 100
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+network = "invalidnet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+
+[store]
+path = "./store.db"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "p2pool"
+password = "p2pool"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        );
+
+        assert!(parse_config(&path).is_err());
+    }
+
+    #[test]
+    fn version_mask_accepts_integer_form() {
+        let (path, _dir) = write_cfg(
+            r#"
+[stratum]
+hostname = "0.0.0.0"
+port = 3333
+start_difficulty = 10000
+minimum_difficulty = 100
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+network = "signet"
+version_mask = 536862720
+difficulty_multiplier = 1.0
+
+[store]
+path = "./store.db"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "p2pool"
+password = "p2pool"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        );
+
+        let entries = parse_config(&path).unwrap();
+        assert!(entries.iter().any(|x| x.key == "version_mask"));
+    }
+
+    #[test]
+    fn empty_rpc_password_is_marked_empty() {
+        let (path, _dir) = write_cfg(
+            r#"
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "user"
+password = ""
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        );
+
+        let entries = parse_config(&path).unwrap();
+        assert!(entries.iter().any(|x| x.value == "<empty>"));
+    }
+
+    #[test]
+    fn bootstrap_address_wrong_network_fails() {
+        let (path, _dir) = write_cfg(
+            r#"
+[stratum]
+bootstrap_address = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+network = "signet"
+
+[store]
+path = "./store.db"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "p2pool"
+password = "p2pool"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        );
+
+        assert!(parse_config(&path).is_err());
+    }
+
+    #[test]
+    fn secrets_are_never_exposed() {
+        let (path, _dir) = write_cfg(
+            r#"
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "user"
+password = "supersecret"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+auth_token = "token"
+"#,
+        );
+
+        let entries = parse_config(&path).unwrap();
+
+        assert!(!entries.iter().any(|x| x.value.contains("supersecret")));
+        assert!(!entries.iter().any(|x| x.value.contains("token")));
     }
 }
