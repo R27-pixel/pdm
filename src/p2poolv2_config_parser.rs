@@ -783,8 +783,9 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::io::Write;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     fn write_cfg(txt: &str) -> (std::path::PathBuf, tempfile::TempDir) {
         let dir = tempdir().unwrap();
@@ -1065,10 +1066,7 @@ port = 46884
 
     #[test]
     fn env_var_override_works() {
-        // Use Arc<Mutex<>> to prevent concurrent test execution
-        // This is a single-threaded test guard using only std::sync
-        let guard = Arc::new(Mutex::new(()));
-        let _lock = guard.lock().unwrap();
+        let _lock = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
 
         unsafe { std::env::set_var("P2POOL_STRATUM_PORT", "9999") };
 
