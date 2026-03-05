@@ -209,13 +209,15 @@ mod tests {
 
     #[test]
     fn test_file_explorer_wrap_and_select_sets_config() {
-        use crossterm::event::KeyEvent;
-        use std::env::temp_dir;
-        use std::fs::{File, create_dir_all};
-        let base = temp_dir().join("pdm_select_test");
-        let _ = std::fs::remove_dir_all(&base);
-        create_dir_all(&base).unwrap();
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        use std::fs::File;
+        use tempfile::tempdir;
 
+        // Create isolated temporary directory
+        let dir = tempdir().unwrap();
+        let base = dir.path();
+
+        // Create a fake bitcoin.conf file
         let file_path = base.join("bitcoin.conf");
         File::create(&file_path).unwrap();
 
@@ -223,7 +225,7 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let mut app = App::new();
 
-        app.explorer.current_dir = base.clone();
+        app.explorer.current_dir = base.to_path_buf();
         app.explorer.load_directory();
 
         handle_action(
@@ -235,10 +237,10 @@ mod tests {
         // Move selection DOWN to the actual file (skip "..")
         app.explorer
             .handle_input(KeyEvent::new(KeyCode::Down, KeyModifiers::empty()));
-        let action = app.explorer.handle_input(crossterm::event::KeyEvent::new(
-            KeyCode::Enter,
-            KeyModifiers::empty(),
-        ));
+
+        let action = app
+            .explorer
+            .handle_input(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
 
         handle_action(action, &mut app).unwrap();
 
