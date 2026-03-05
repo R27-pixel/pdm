@@ -225,3 +225,51 @@ fn render_bitcoin_view(f: &mut Frame, app: &mut App, area: Rect) {
 
     f.render_widget(list, area);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::App;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    #[test]
+    fn test_home_screen_render() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut app = App::new();
+
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
+
+        insta::assert_debug_snapshot!(terminal.backend());
+    }
+
+    #[test]
+    fn test_bitcoin_screen_render() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut app = App::new();
+        app.sidebar_index = 1;
+        app.toggle_menu();
+
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
+
+        insta::assert_debug_snapshot!(terminal.backend());
+    }
+
+    #[test]
+    fn test_p2pool_screen_render() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut app = App::new();
+        app.sidebar_index = 2;
+        app.toggle_menu();
+
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
+
+        insta::assert_debug_snapshot!(terminal.backend());
+    }
+}
