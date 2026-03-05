@@ -106,38 +106,84 @@ fn render_file_explorer(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_p2pool_view(f: &mut Frame, app: &mut App, area: Rect) {
-    let items: Vec<ListItem> = app
-        .p2pool_data
-        .iter()
-        .map(|entry| {
-            let style = if !entry.is_default {
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            };
+    let mut items: Vec<ListItem> = Vec::new();
 
-            let content = Line::from(vec![
-                Span::styled(
-                    format!("[{}] ", entry.section),
-                    Style::default().fg(Color::Blue),
-                ),
-                Span::styled(format!("{} = ", entry.key), style),
-                Span::styled(&entry.value, style),
-            ]);
+    if let Some(cfg) = &app.p2pool_config {
+        // STRATUM
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("[stratum] ", Style::default().fg(Color::Blue)),
+            Span::raw(format!("hostname = {}", cfg.stratum.hostname)),
+        ])));
 
-            ListItem::new(content)
-        })
-        .collect();
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("[stratum] ", Style::default().fg(Color::Blue)),
+            Span::raw(format!("port = {}", cfg.stratum.port)),
+        ])));
 
-    let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" P2Pool Configuration "),
-        )
-        .highlight_style(Style::default().bg(Color::Blue));
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("[stratum] ", Style::default().fg(Color::Blue)),
+            Span::raw(format!(
+                "start_difficulty = {}",
+                cfg.stratum.start_difficulty
+            )),
+        ])));
+
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("[stratum] ", Style::default().fg(Color::Blue)),
+            Span::raw(format!(
+                "minimum_difficulty = {}",
+                cfg.stratum.minimum_difficulty
+            )),
+        ])));
+
+        // BITCOIN RPC
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("[bitcoinrpc] ", Style::default().fg(Color::Blue)),
+            Span::raw(format!("url = {}", cfg.bitcoinrpc.url)),
+        ])));
+
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("[bitcoinrpc] ", Style::default().fg(Color::Blue)),
+            Span::raw(format!("username = {}", cfg.bitcoinrpc.username)),
+        ])));
+
+        // NETWORK
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("[network] ", Style::default().fg(Color::Blue)),
+            Span::raw(format!("listen_address = {}", cfg.network.listen_address)),
+        ])));
+
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("[network] ", Style::default().fg(Color::Blue)),
+            Span::raw(format!(
+                "max_established_incoming = {}",
+                cfg.network.max_established_incoming
+            )),
+        ])));
+
+        // STORE
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("[store] ", Style::default().fg(Color::Blue)),
+            Span::raw(format!("path = {}", cfg.store.path)),
+        ])));
+
+        // API
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("[api] ", Style::default().fg(Color::Blue)),
+            Span::raw(format!("hostname = {}", cfg.api.hostname)),
+        ])));
+
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled("[api] ", Style::default().fg(Color::Blue)),
+            Span::raw(format!("port = {}", cfg.api.port)),
+        ])));
+    }
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" P2Pool Configuration "),
+    );
 
     f.render_widget(list, area);
 }

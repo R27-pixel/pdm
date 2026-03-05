@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use p2poolv2_config::Config as P2PoolConfig;
 use pdm::app::AppAction;
 use pdm::app::{App, CurrentScreen};
 use pdm::config::parse_config as parse_bitcoin_config;
-use pdm::p2poolv2_config_parser::parse_config as parse_p2pool_config;
 use pdm::ui;
 
 use anyhow::Result;
@@ -61,8 +61,6 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                 CurrentScreen::FileExplorer => app.explorer.handle_input(key),
 
                 _ => match key.code {
-                    KeyCode::Char('q') => AppAction::Quit,
-
                     KeyCode::Enter => {
                         if matches!(
                             app.current_screen,
@@ -129,8 +127,8 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
                 match trigger {
                     CurrentScreen::P2PoolConfig => {
                         app.p2pool_conf_path = Some(path.clone());
-                        if let Ok(entries) = parse_p2pool_config(&path) {
-                            app.p2pool_data = entries;
+                        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
+                            app.p2pool_config = Some(cfg);
                         }
                         app.current_screen = CurrentScreen::P2PoolConfig;
                     }

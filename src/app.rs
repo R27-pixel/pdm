@@ -4,7 +4,7 @@
 
 use crate::components::file_explorer::FileExplorer;
 use crate::config::ConfigEntry as BitcoinEntry;
-use crate::p2poolv2_config_parser::ConfigEntry as P2PoolEntry;
+use p2poolv2_config::Config as P2PoolConfig;
 use std::path::PathBuf;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -39,7 +39,7 @@ pub struct App {
     pub bitcoin_conf_path: Option<PathBuf>,
     pub p2pool_conf_path: Option<PathBuf>,
     pub explorer: FileExplorer,
-    pub p2pool_data: Vec<P2PoolEntry>,
+    pub p2pool_config: Option<P2PoolConfig>,
     pub bitcoin_data: Vec<BitcoinEntry>,
 }
 
@@ -52,7 +52,7 @@ impl App {
             bitcoin_conf_path: None,
             p2pool_conf_path: None,
             explorer: FileExplorer::new(),
-            p2pool_data: Vec::new(),
+            p2pool_config: None,
             bitcoin_data: Vec::new(),
         }
     }
