@@ -6,7 +6,7 @@ use p2poolv2_config::Config as P2PoolConfig;
 use pdm::app::AppAction;
 use pdm::app::{App, CurrentScreen};
 use pdm::config::parse_config as parse_bitcoin_config;
-use pdm::ui;
+use pdm::ui::ui;
 
 use anyhow::Result;
 use crossterm::{
@@ -43,7 +43,7 @@ fn main() -> Result<()> {
 
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> {
     loop {
-        terminal.draw(|f| ui::ui(f, app))?;
+        terminal.draw(|f| ui(f, app))?;
 
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press {
@@ -167,14 +167,14 @@ mod tests {
         let mut app = App::new();
 
         // Initial render
-        terminal.draw(|f| ui::ui(f, &mut app)).unwrap();
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
         insta::assert_debug_snapshot!("home_screen", terminal.backend());
 
         // Simulate sidebar move
         app.sidebar_index = 1;
         app.toggle_menu();
 
-        terminal.draw(|f| ui::ui(f, &mut app)).unwrap();
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
         insta::assert_debug_snapshot!("menu_toggled", terminal.backend());
 
         assert_eq!(app.current_screen, CurrentScreen::BitcoinConfig);
@@ -204,7 +204,7 @@ mod tests {
         handle_action(AppAction::CloseModal, &mut app).unwrap();
         assert_eq!(app.current_screen, CurrentScreen::BitcoinConfig);
 
-        terminal.draw(|f| ui::ui(f, &mut app)).unwrap();
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
     }
 
     #[test]
@@ -246,7 +246,7 @@ mod tests {
 
         assert_eq!(app.bitcoin_conf_path, Some(file_path));
 
-        terminal.draw(|f| ui::ui(f, &mut app)).unwrap();
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
     }
 
     #[test]

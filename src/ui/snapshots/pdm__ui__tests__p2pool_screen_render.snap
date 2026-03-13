@@ -1,0 +1,44 @@
+---
+source: src/ui/mod.rs
+expression: terminal.backend()
+---
+TestBackend {
+    buffer: Buffer {
+        area: Rect { x: 0, y: 0, width: 80, height: 20 },
+        content: [
+            "┌ PDM ──────────────────┐┌ P2Pool Config ──────────────────────────────────────┐",
+            "│Home                   ││Press [Enter] to select a p2poolv2 config file       │",
+            "│Bitcoin Config         ││                                                     │",
+            "│P2Pool Config          ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "│                       ││                                                     │",
+            "└───────────────────────┘└─────────────────────────────────────────────────────┘",
+        ],
+        styles: [
+            x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+            x: 1, y: 3, fg: Black, bg: Gray, underline: Reset, modifier: NONE,
+            x: 24, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        ]
+    },
+    scrollback: Buffer {
+        area: Rect { x: 0, y: 0, width: 80, height: 0 }
+    },
+    cursor: false,
+    pos: (
+        0,
+        0,
+    ),
+}
