@@ -23,7 +23,8 @@ impl StatusBar {
         Self
     }
 
-    // Status bar
+    /// Renders the status bar with context-sensitive key hints
+    /// based on the current screen and application state.
     pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let mut spans: Vec<Span> = Vec::new();
 
@@ -31,6 +32,7 @@ impl StatusBar {
             CurrentScreen::FileExplorer => {
                 spans.extend(hint("↑↓", "Navigate"));
                 spans.extend(hint("Enter", "Select"));
+                spans.extend(hint("⌫", "Go up")); // reflects the Backspace keybinding
                 spans.extend(hint("Esc", "Cancel"));
             }
             CurrentScreen::BitcoinConfig if app.bitcoin_conf_path.is_some() => {

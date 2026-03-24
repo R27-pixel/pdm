@@ -11,6 +11,28 @@ use ratatui::{
 use std::fs;
 use std::path::PathBuf;
 
+/// Represents a single entry in the file explorer list.
+///
+/// - `ParentDir` is the virtual `..` entry for navigating upward.
+/// - `Directory` is a subdirectory inside the current directory.
+/// - `File` is a regular file inside the current directory.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FileEntry {
+    ParentDir,
+    Directory(PathBuf),
+    File(PathBuf),
+}
+
+impl FileEntry {
+    /// Returns the path of the entry, or `None` for `ParentDir`.
+    pub fn path(&self) -> Option<&PathBuf> {
+        match self {
+            FileEntry::Directory(path) | FileEntry::File(path) => Some(path),
+            FileEntry::ParentDir => None,
+        }
+    }
+}
+
 /// `FileExplorer` maintains the current directory, a sorted list of entries,
 /// and the currently selected index. It supports navigating directories,
 /// moving the selection, and selecting files.
@@ -18,8 +40,9 @@ use std::path::PathBuf;
 pub struct FileExplorer {
     /// Current directory being explored.
     pub current_dir: PathBuf,
-    /// Sorted list of files and folders in `current_dir`.
-    pub files: Vec<PathBuf>,
+    /// Sorted list of entries in `current_dir`.
+    /// Directories appear before files; `ParentDir` is always first when present.
+    pub file_entries: Vec<FileEntry>,
     /// Index of the currently selected item.
     pub selected_index: usize,
 }
@@ -36,24 +59,25 @@ impl FileExplorer {
         let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let mut explorer = Self {
             current_dir,
-            files: Vec::new(),
+            file_entries: Vec::new(),
             selected_index: 0,
         };
         explorer.load_directory();
         explorer
     }
 
-    /// Loads the contents of `current_dir` into `files`.
+    /// Loads the contents of `current_dir` into `file_entries`.
     ///
     /// Directories are listed first, followed by files. If the directory
-    /// has a parent, a virtual `..` entry is added to allow navigating upward.
+    /// has a parent, a `ParentDir` entry is added at the top to allow
+    /// navigating upward.
     pub fn load_directory(&mut self) {
-        self.files.clear();
+        self.file_entries.clear();
         self.selected_index = 0;
 
-        // Add ".." for going up a directory
+        // Add a ParentDir entry so the user can navigate up
         if self.current_dir.parent().is_some() {
-            self.files.push(self.current_dir.join(".."));
+            self.file_entries.push(FileEntry::ParentDir);
         }
 
         if let Ok(entries) = fs::read_dir(&self.current_dir) {
@@ -72,56 +96,62 @@ impl FileExplorer {
             dirs.sort();
             files.sort();
 
-            self.files.append(&mut dirs);
-            self.files.append(&mut files);
+            self.file_entries
+                .extend(dirs.into_iter().map(FileEntry::Directory));
+            self.file_entries
+                .extend(files.into_iter().map(FileEntry::File));
         }
     }
 
-    /// Moves the selection to the next entry.
+    /// Moves the selection down by one entry, clamping at the last item.
     pub fn next(&mut self) {
-        if !self.files.is_empty() {
-            self.selected_index = (self.selected_index + 1) % self.files.len();
+        if self.selected_index + 1 < self.file_entries.len() {
+            self.selected_index += 1;
         }
     }
 
-    /// Moves the selection to the previous entry.
+    /// Moves the selection up by one entry, clamping at the first item.
     pub fn previous(&mut self) {
-        if !self.files.is_empty() {
-            if self.selected_index == 0 {
-                self.selected_index = self.files.len() - 1;
-            } else {
-                self.selected_index -= 1;
-            }
+        if self.selected_index > 0 {
+            self.selected_index -= 1;
         }
     }
 
-    /// Selects the current entry.
-    ///
-    /// - If it is a directory, enters that directory.
-    /// - If it is `..`, moves to the parent directory.
-    /// - If it is a file, returns its path.
-    pub fn select(&mut self) -> Option<PathBuf> {
-        if self.files.is_empty() {
-            return None;
-        }
-
-        let selected = self.files[self.selected_index].clone();
-
-        if selected.ends_with("..") {
-            if let Some(parent) = self.current_dir.parent() {
-                self.current_dir = parent.to_path_buf();
-                self.load_directory();
-            }
-        } else if selected.is_dir() {
-            self.current_dir = selected;
+    /// Navigates to the parent of `current_dir`, if one exists.
+    /// This is also bound to `Backspace` in `handle_input`.
+    pub fn go_up(&mut self) {
+        if let Some(parent) = self.current_dir.parent().map(|p| p.to_path_buf()) {
+            self.current_dir = parent;
             self.load_directory();
-        } else {
-            return Some(selected);
         }
-
-        None
     }
 
+    /// Activates the currently selected entry.
+    ///
+    /// - `ParentDir` — navigates to the parent directory.
+    /// - `Directory` — enters that directory.
+    /// - `File` — returns its path to the caller.
+    pub fn select(&mut self) -> Option<PathBuf> {
+        match self.file_entries.get(self.selected_index)?.clone() {
+            FileEntry::ParentDir => {
+                self.go_up();
+                None
+            }
+            FileEntry::Directory(path) => {
+                self.current_dir = path;
+                self.load_directory();
+                None
+            }
+            FileEntry::File(path) => Some(path),
+        }
+    }
+
+    /// Handles keyboard input for the file explorer.
+    ///
+    /// - `Up` / `Down` — move the selection.
+    /// - `Enter` — activate the selected entry.
+    /// - `Backspace` — go up to the parent directory.
+    /// - `Esc` — close the explorer modal.
     pub fn handle_input(&mut self, key: KeyEvent) -> AppAction {
         match key.code {
             KeyCode::Up => {
@@ -138,28 +168,31 @@ impl FileExplorer {
                 }
                 AppAction::None
             }
+            KeyCode::Backspace => {
+                self.go_up();
+                AppAction::None
+            }
             KeyCode::Esc => AppAction::CloseModal,
             _ => AppAction::None,
         }
     }
 
     pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
-        let files: Vec<ListItem> = app
+        let items: Vec<ListItem> = app
             .explorer
-            .files
+            .file_entries
             .iter()
-            .map(|path| {
-                let display_name = if path.ends_with("..") {
-                    "📁 ..".to_string()
-                } else {
-                    let name = path.file_name().unwrap_or_default().to_string_lossy();
-                    if path.is_dir() {
-                        format!("📁 {}", name)
-                    } else {
-                        format!("📄 {}", name)
+            .map(|entry| {
+                let label = match entry {
+                    FileEntry::ParentDir => "📁 ..".to_string(),
+                    FileEntry::Directory(p) => {
+                        format!("📁 {}", p.file_name().unwrap_or_default().to_string_lossy())
+                    }
+                    FileEntry::File(p) => {
+                        format!("📄 {}", p.file_name().unwrap_or_default().to_string_lossy())
                     }
                 };
-                ListItem::new(display_name)
+                ListItem::new(label)
             })
             .collect();
 
@@ -168,7 +201,7 @@ impl FileExplorer {
 
         let title = format!(" Select File (Current: {:?}) ", app.explorer.current_dir);
 
-        let list = List::new(files)
+        let list = List::new(items)
             .block(Block::default().borders(Borders::ALL).title(title))
             .highlight_style(Style::default().bg(Color::Blue).fg(Color::White))
             .highlight_symbol(">> ");
@@ -206,31 +239,40 @@ mod tests {
         let dir = setup_temp_fs();
         let mut explorer = FileExplorer {
             current_dir: dir,
-            files: vec![],
+            file_entries: vec![],
             selected_index: 0,
         };
 
         explorer.load_directory();
-        assert!(explorer.files.len() >= 2);
+        // Expects at least the "folder" dir and "file.txt" created in setup
+        assert!(explorer.file_entries.len() >= 2);
     }
 
     #[test]
-    fn next_and_previous_wrap() {
+    fn next_and_previous_clamp_at_boundaries() {
         let dir = setup_temp_fs();
         let mut explorer = FileExplorer {
             current_dir: dir,
-            files: vec![PathBuf::from("a"), PathBuf::from("b")],
+            file_entries: vec![
+                FileEntry::Directory(PathBuf::from("a")),
+                FileEntry::Directory(PathBuf::from("b")),
+            ],
             selected_index: 0,
         };
 
         explorer.next();
         assert_eq!(explorer.selected_index, 1);
 
+        // At the last item — should not wrap
         explorer.next();
-        assert_eq!(explorer.selected_index, 0);
+        assert_eq!(explorer.selected_index, 1);
 
         explorer.previous();
-        assert_eq!(explorer.selected_index, 1);
+        assert_eq!(explorer.selected_index, 0);
+
+        // At the first item — should not wrap
+        explorer.previous();
+        assert_eq!(explorer.selected_index, 0);
     }
 
     #[test]
@@ -240,7 +282,7 @@ mod tests {
 
         let mut explorer = FileExplorer {
             current_dir: dir,
-            files: vec![file.clone()],
+            file_entries: vec![FileEntry::File(file.clone())],
             selected_index: 0,
         };
 
@@ -256,22 +298,22 @@ mod tests {
 
         let mut explorer = FileExplorer {
             current_dir: child.clone(),
-            files: vec![],
+            file_entries: vec![],
             selected_index: 0,
         };
 
         explorer.load_directory();
 
-        // First entry must be ".."
-        assert!(explorer.files[0].ends_with(".."));
+        // First entry must be the ParentDir variant
+        assert_eq!(explorer.file_entries[0], FileEntry::ParentDir);
 
-        // Select the ".." entry
+        // Select the ParentDir entry
         let result = explorer.select();
 
-        // It should move to parent and not return a file
+        // Should move to the parent and not return a file path
         assert!(result.is_none());
         assert_eq!(explorer.current_dir, base);
-        assert!(!explorer.files.is_empty());
+        assert!(!explorer.file_entries.is_empty());
     }
 
     #[test]
@@ -281,7 +323,7 @@ mod tests {
 
         let mut explorer = FileExplorer {
             current_dir: base.clone(),
-            files: vec![folder.clone()],
+            file_entries: vec![FileEntry::Directory(folder.clone())],
             selected_index: 0,
         };
 
@@ -301,7 +343,11 @@ mod tests {
         let dir = setup_temp_fs();
         let mut explorer = FileExplorer {
             current_dir: dir,
-            files: vec![PathBuf::from("a"), PathBuf::from("b"), PathBuf::from("c")],
+            file_entries: vec![
+                FileEntry::File(PathBuf::from("a")),
+                FileEntry::File(PathBuf::from("b")),
+                FileEntry::File(PathBuf::from("c")),
+            ],
             selected_index: 2,
         };
 
