@@ -15,6 +15,61 @@ pub struct P2PoolClient {
     base_url: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChainInfo {
+    pub genesis_blockhash: Option<String>,
+    pub chain_tip_height: Option<u64>,
+    pub total_work: String,
+    pub chain_tip_blockhash: Option<String>,
+    pub top_candidate_height: Option<u64>,
+    pub top_candidate_blockhash: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PeerInfo {
+    pub peer_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SharesResponse {
+    pub from_height: u64,
+    pub to_height: u64,
+    pub shares: Vec<ShareInfo>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ShareInfo {
+    pub blockhash: String,
+    pub prev_blockhash: String,
+    pub height: u64,
+    pub miner_address: String,
+    pub timestamp: u64,
+    pub bits: String,
+    pub uncles: Vec<UncleInfo>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UncleInfo {
+    pub blockhash: String,
+    pub prev_blockhash: String,
+    pub miner_address: String,
+    pub timestamp: u64,
+    pub height: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ShareDetail {
+    pub blockhash: String,
+    pub height: Option<u64>,
+    pub status: String,
+    pub parent: String,
+    pub uncles: Vec<String>,
+    pub miner_address: String,
+    pub merkle_root: String,
+    pub bits: String,
+    pub time: String,
+}
+
 impl P2PoolClient {
     pub fn new() -> Self {
         let client = Client::builder()
@@ -50,7 +105,6 @@ impl P2PoolClient {
         Ok(text)
     }
 
-    // ✏️ CHANGED: renamed from fetch_metrics_raw, added basic_auth param
     pub async fn fetch_metrics(&self, basic_auth: Option<&str>) -> Result<String, reqwest::Error> {
         let url = format!("{}/metrics", self.base_url);
 
@@ -170,61 +224,6 @@ impl Default for P2PoolClient {
     fn default() -> Self {
         Self::new()
     }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ChainInfo {
-    pub genesis_blockhash: Option<String>,
-    pub chain_tip_height: Option<u64>,
-    pub total_work: String,
-    pub chain_tip_blockhash: Option<String>,
-    pub top_candidate_height: Option<u64>,
-    pub top_candidate_blockhash: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct PeerInfo {
-    pub peer_id: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SharesResponse {
-    pub from_height: u64,
-    pub to_height: u64,
-    pub shares: Vec<ShareInfo>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ShareInfo {
-    pub blockhash: String,
-    pub prev_blockhash: String,
-    pub height: u64,
-    pub miner_address: String,
-    pub timestamp: u64,
-    pub bits: String,
-    pub uncles: Vec<UncleInfo>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct UncleInfo {
-    pub blockhash: String,
-    pub prev_blockhash: String,
-    pub miner_address: String,
-    pub timestamp: u64,
-    pub height: u64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ShareDetail {
-    pub blockhash: String,
-    pub height: Option<u64>,
-    pub status: String,
-    pub parent: String,
-    pub uncles: Vec<String>,
-    pub miner_address: String,
-    pub merkle_root: String,
-    pub bits: String,
-    pub time: String,
 }
 
 #[cfg(test)]
