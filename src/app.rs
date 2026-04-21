@@ -5,9 +5,12 @@
 use crate::bitcoin_config::ConfigEntry as BitcoinEntry;
 use crate::components::bitcoin_config_view::BitcoinConfigView;
 use crate::components::file_explorer::FileExplorer;
+use crate::components::p2pool_client::{ChainInfo, PeerInfo, ShareInfo};
 use crate::components::p2pool_config_view::P2PoolConfigView;
 use crate::components::settings_view::SettingsView;
 use crate::settings::Settings;
+use crate::components::p2pool_log_parser::ParsedP2PoolState;
+use crate::p2poolv2_config::P2PoolConfigEntry as P2PoolEntry;
 use p2poolv2_config::Config as P2PoolConfig;
 use std::path::PathBuf;
 
@@ -30,6 +33,11 @@ pub const MAX_SIDEBAR_INDEX: usize = SIDEBAR_ITEMS.len() - 1;
 pub const BITCOIN_STATUS_TABS: &[&str] = &["Chain Info", "System", "Logs", "Peers"];
 
 pub const MAX_BITCOIN_STATUS_TAB: usize = BITCOIN_STATUS_TABS.len() - 1;
+
+/// Tab labels for the P2Pool Status view
+pub const P2POOL_STATUS_TABS: &[&str] = &["Chain Info", "System", "Logs", "Peers", "Shares"];
+
+pub const MAX_P2POOL_STATUS_TAB: usize = P2POOL_STATUS_TABS.len() - 1;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CurrentScreen {
@@ -102,6 +110,13 @@ pub struct App {
     /// Cached result of `settings::config_dir()`, used to display the default
     /// settings storage path without repeated env-var lookups during rendering.
     pub config_dir: PathBuf,
+    pub p2pool_data: Vec<P2PoolEntry>,
+    pub p2pool_status_tab: usize,
+    pub chain_info: Option<ChainInfo>,
+    pub peers: Vec<PeerInfo>,
+    pub recent_shares: Vec<ShareInfo>,
+    pub p2pool_logs: Vec<String>,
+    pub p2pool_state: ParsedP2PoolState,
 }
 
 impl App {
@@ -123,6 +138,13 @@ impl App {
             settings: Settings::default(),
             home_dir: std::env::var("HOME").unwrap_or_default(),
             config_dir: crate::settings::config_dir().unwrap_or_default(),
+            p2pool_data: Vec::new(),
+            p2pool_status_tab: 0,
+            chain_info: None,
+            peers: Vec::new(),
+            recent_shares: Vec::new(),
+            p2pool_logs: Vec::new(),
+            p2pool_state: ParsedP2PoolState::new(),
         }
     }
 
@@ -133,6 +155,11 @@ impl App {
             self.bitcoin_config_view.save_message = None;
             self.bitcoin_config_view.editing = false;
             self.bitcoin_config_view.edit_input.clear();
+        } else if self.current_screen == CurrentScreen::P2PoolConfig {
+            self.p2pool_config_view.warning_message = None;
+            self.p2pool_config_view.save_message = None;
+            self.p2pool_config_view.editing = false;
+            self.p2pool_config_view.edit_input.clear();
         }
         if self.current_screen == CurrentScreen::P2PoolConfig {
             self.p2pool_config_view.warning_message = None;

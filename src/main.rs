@@ -16,13 +16,20 @@ use pdm::ui;
 use std::ops::ControlFlow;
 
 use anyhow::Result;
+use base64::{Engine, engine::general_purpose::STANDARD};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use pdm::app::MAX_P2POOL_STATUS_TAB;
+use pdm::components::p2pool_client::P2PoolClient;
+use pdm::components::p2pool_websockets::connect_p2pool_websocket;
+use pdm::config::load_api_config;
 use ratatui::{Terminal, backend::Backend, backend::CrosstermBackend};
 use std::io;
+use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 
 fn main() -> Result<()> {
     // Setup Terminal
@@ -36,7 +43,10 @@ fn main() -> Result<()> {
     let mut app = App::new();
     app.settings = load_settings();
     bootstrap_from_settings(&mut app);
-    let res = run_app(&mut terminal, &mut app);
+
+    // Tokio runtime for async P2Pool API calls
+    let rt = Runtime::new()?;
+    let res = rt.block_on(run_app(&mut terminal, &mut app));
 
     // Restore Terminal
     disable_raw_mode()?;
@@ -64,11 +74,49 @@ fn sidebar_nav(key: KeyCode, app: &mut App) -> AppAction {
     }
 }
 
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()>
-where
-    <B as Backend>::Error: Send + Sync + 'static,
-{
+async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> {
+    let api_config = load_api_config()?;
+    let client = P2PoolClient::with_base_url(api_config.base_url.clone());
+    let (tx, mut rx) = mpsc::channel::<String>(100);
+
+    let token: Option<String> = match (api_config.auth_user.as_ref(), api_config.auth_pass.as_ref())
+    {
+        (Some(user), Some(pass)) => Some(STANDARD.encode(format!("{}:{}", user, pass))),
+        _ => None,
+    };
+    let basic_auth: Option<String> = token.as_ref().map(|t| format!("Basic {}", t));
+
+    let ws_base_url = api_config.base_url.clone();
+    let ws_token = token.clone();
+
+    tokio::spawn(async move {
+        connect_p2pool_websocket(&ws_base_url, ws_token.as_deref(), tx).await;
+    });
+
     loop {
+        //chain info
+        if let Ok(chain_info) = client.fetch_chain_info().await {
+            app.chain_info = Some(chain_info);
+        }
+
+        // Peers
+        if let Ok(peers) = client.fetch_peers().await {
+            app.peers = peers;
+        }
+
+        // Recent shares (latest 10)
+        if let Ok(shares) = client.fetch_shares(None, Some(10)).await {
+            app.recent_shares = shares.shares;
+        }
+
+        if let Ok(metrics_text) = client.fetch_metrics(basic_auth.as_deref()).await {
+            app.p2pool_state.parse_metrics(&metrics_text);
+        }
+
+        while let Ok(log) = rx.try_recv() {
+            app.p2pool_state.parse_log_line(&log);
+        }
+
         terminal.draw(|f| ui::ui(f, app))?;
 
         if let Event::Key(key) = event::read()? {
@@ -93,6 +141,22 @@ where
 
             let action = match app.current_screen {
                 CurrentScreen::FileExplorer => app.explorer.handle_input(key),
+
+                CurrentScreen::P2PoolStatus => match key.code {
+                    KeyCode::Left => {
+                        if app.p2pool_status_tab > 0 {
+                            app.p2pool_status_tab -= 1;
+                        }
+                        AppAction::None
+                    }
+                    KeyCode::Right => {
+                        if app.p2pool_status_tab < MAX_P2POOL_STATUS_TAB {
+                            app.p2pool_status_tab += 1;
+                        }
+                        AppAction::None
+                    }
+                    k => sidebar_nav(k, app),
+                },
 
                 CurrentScreen::BitcoinStatus => match key.code {
                     KeyCode::Left => {
