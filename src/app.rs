@@ -7,10 +7,10 @@ use crate::components::bitcoin_config_view::BitcoinConfigView;
 use crate::components::file_explorer::FileExplorer;
 use crate::components::p2pool_client::{ChainInfo, PeerInfo, ShareInfo};
 use crate::components::p2pool_config_view::P2PoolConfigView;
-use crate::components::settings_view::SettingsView;
-use crate::settings::Settings;
 use crate::components::p2pool_log_parser::ParsedP2PoolState;
+use crate::components::settings_view::SettingsView;
 use crate::p2poolv2_config::P2PoolConfigEntry as P2PoolEntry;
+use crate::settings::Settings;
 use p2poolv2_config::Config as P2PoolConfig;
 use std::path::PathBuf;
 

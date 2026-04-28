@@ -12,7 +12,7 @@ pub mod p2pool_client;
 pub mod p2pool_config_view;
 pub mod p2pool_log_parser;
 pub mod p2pool_status_view;
-pub mod settings_view;
 pub mod p2pool_websockets;
+pub mod settings_view;
 pub mod shares_market_view;
 pub mod status_bar;
