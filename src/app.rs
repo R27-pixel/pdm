@@ -5,6 +5,7 @@
 use crate::bitcoin_config::ConfigEntry as BitcoinEntry;
 use crate::components::bitcoin_config_view::BitcoinConfigView;
 use crate::components::file_explorer::FileExplorer;
+use crate::components::p2pool_config_view::P2PoolConfigView;
 use crate::components::settings_view::SettingsView;
 use crate::settings::Settings;
 use p2poolv2_config::Config as P2PoolConfig;
@@ -71,6 +72,10 @@ pub enum AppAction {
     CommitEdit(usize, String),
     // Saves bitcoin config to disk
     SaveBitcoinConfig,
+    /// Commits an edited p2pool config value: (entry index, new value)
+    CommitP2PoolEdit(usize, String),
+    /// Saves p2pool config to disk
+    SaveP2PoolConfig,
     // Open the file explorer to pick a path for a settings field (field index)
     OpenExplorerForSettings(usize),
     // Clear a settings field by index, setting it back to None
@@ -85,6 +90,7 @@ pub struct App {
     pub p2pool_conf_path: Option<PathBuf>,
     pub explorer: FileExplorer,
     pub bitcoin_config_view: BitcoinConfigView,
+    pub p2pool_config_view: P2PoolConfigView,
     pub settings_view: SettingsView,
     pub p2pool_config: Option<P2PoolConfig>,
     pub bitcoin_data: Vec<BitcoinEntry>,
@@ -109,6 +115,7 @@ impl App {
             p2pool_conf_path: None,
             explorer: FileExplorer::new(),
             bitcoin_config_view: BitcoinConfigView::new(),
+            p2pool_config_view: P2PoolConfigView::new(),
             settings_view: SettingsView::new(),
             p2pool_config: None,
             bitcoin_data: Vec::new(),
@@ -126,6 +133,12 @@ impl App {
             self.bitcoin_config_view.save_message = None;
             self.bitcoin_config_view.editing = false;
             self.bitcoin_config_view.edit_input.clear();
+        }
+        if self.current_screen == CurrentScreen::P2PoolConfig {
+            self.p2pool_config_view.warning_message = None;
+            self.p2pool_config_view.save_message = None;
+            self.p2pool_config_view.editing = false;
+            self.p2pool_config_view.edit_input.clear();
         }
         if let Some(&(_, screen)) = SIDEBAR_ITEMS.get(self.sidebar_index) {
             self.current_screen = screen;

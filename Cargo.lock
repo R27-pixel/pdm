@@ -177,8 +177,8 @@ dependencies = [
 
 [[package]]
 name = "bitcoindrpc"
-version = "0.1.0"
-source = "git+https://github.com/p2poolv2/p2poolv2#a79d76c756cfa65bafb4d539566c7401d8fda473"
+version = "0.10.6"
+source = "git+https://github.com/p2poolv2/p2poolv2#f448917decf9e12529637ebd37715cb3327c572b"
 dependencies = [
  "base64 0.22.1",
  "bitcoin",
@@ -555,7 +555,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -638,7 +638,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1463,7 +1463,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1588,8 +1588,8 @@ dependencies = [
 
 [[package]]
 name = "p2poolv2_config"
-version = "0.1.0"
-source = "git+https://github.com/p2poolv2/p2poolv2#a79d76c756cfa65bafb4d539566c7401d8fda473"
+version = "0.10.6"
+source = "git+https://github.com/p2poolv2/p2poolv2#f448917decf9e12529637ebd37715cb3327c572b"
 dependencies = [
  "bitcoin",
  "bitcoindrpc",
@@ -1631,6 +1631,7 @@ name = "pdm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bitcoin",
  "config 0.15.19",
  "crossterm",
  "directories",
@@ -1641,6 +1642,7 @@ dependencies = [
  "serial_test",
  "tempfile",
  "toml 0.8.23",
+ "toml_edit",
  "unicode-width",
 ]
 
@@ -2091,7 +2093,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2538,7 +2540,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
