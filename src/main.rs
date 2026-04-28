@@ -74,7 +74,10 @@ fn sidebar_nav(key: KeyCode, app: &mut App) -> AppAction {
     }
 }
 
-async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> {
+async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()>
+where
+    B::Error: Send + Sync + 'static,
+{
     let api_config = load_api_config()?;
     let client = P2PoolClient::with_base_url(api_config.base_url.clone());
     let (tx, mut rx) = mpsc::channel::<String>(100);
