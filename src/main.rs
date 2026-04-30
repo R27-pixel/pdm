@@ -28,6 +28,7 @@ use pdm::components::p2pool_websockets::connect_p2pool_websocket;
 use pdm::config::load_api_config;
 use ratatui::{Terminal, backend::Backend, backend::CrosstermBackend};
 use std::io;
+use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
@@ -73,14 +74,15 @@ fn sidebar_nav(key: KeyCode, app: &mut App) -> AppAction {
         _ => AppAction::None,
     }
 }
-
+const REST_POLL_INTERVAL: Duration = Duration::from_secs(5);
+const KEY_POLL_TIMEOUT: Duration = Duration::from_millis(100);
 async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()>
 where
     B::Error: Send + Sync + 'static,
 {
     let api_config = load_api_config()?;
     let client = P2PoolClient::with_base_url(api_config.base_url.clone());
-    let (tx, mut rx) = mpsc::channel::<String>(100);
+    let (tx, mut rx) = mpsc::channel::<String>(256);
 
     let token: Option<String> = match (api_config.auth_user.as_ref(), api_config.auth_pass.as_ref())
     {
@@ -95,32 +97,58 @@ where
     tokio::spawn(async move {
         connect_p2pool_websocket(&ws_base_url, ws_token.as_deref(), tx).await;
     });
+    let mut last_rest_poll = Instant::now()
+        .checked_sub(REST_POLL_INTERVAL)
+        .unwrap_or_else(Instant::now);
 
     loop {
-        //chain info
-        if let Ok(chain_info) = client.fetch_chain_info().await {
-            app.chain_info = Some(chain_info);
-        }
+        if last_rest_poll.elapsed() >= REST_POLL_INTERVAL {
+            //chain info
+            if let Ok(info) = client.fetch_chain_info().await {
+                app.chain_info = Some(info);
+            }
+            // Peers
+            if let Ok(peers) = client.fetch_peers().await {
+                app.peers = peers;
+            }
 
-        // Peers
-        if let Ok(peers) = client.fetch_peers().await {
-            app.peers = peers;
-        }
+            // Recent shares (latest 10)
+            if let Ok(shares) = client.fetch_shares(None, Some(10)).await {
+                // Only update from REST if WS hasn't added newer shares
+                let rest_tip = shares.shares.first().map(|s| s.height);
+                let ws_tip = app.recent_shares.first().map(|s| s.height);
+                if rest_tip >= ws_tip {
+                    app.recent_shares = shares.shares;
+                }
+            }
 
-        // Recent shares (latest 10)
-        if let Ok(shares) = client.fetch_shares(None, Some(10)).await {
-            app.recent_shares = shares.shares;
-        }
-
-        if let Ok(metrics_text) = client.fetch_metrics(basic_auth.as_deref()).await {
-            app.p2pool_state.parse_metrics(&metrics_text);
+            if let Ok(metrics_text) = client.fetch_metrics(basic_auth.as_deref()).await {
+                app.p2pool_state.parse_metrics(&metrics_text);
+            }
+            last_rest_poll = Instant::now();
         }
 
         while let Ok(log) = rx.try_recv() {
-            app.p2pool_state.parse_log_line(&log);
+            app.p2pool_state.parse_ws_event(&log);
+
+            if log.starts_with("[SHARE EVENT]") {
+                if let Some(pos) = log.find('{') {
+                    if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&log[pos..]) {
+                        if let Some(data) = msg.get("data") {
+                            prepend_ws_share(data, app);
+                        }
+                    }
+                }
+            }
+            if log.starts_with("[PEER EVENT]") {
+                handle_ws_peer(&log, app);
+            }
         }
 
         terminal.draw(|f| ui::ui(f, app))?;
+        if !event::poll(KEY_POLL_TIMEOUT)? {
+            continue; // no key ready — go back to top for next WS drain + redraw
+        }
 
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press {
@@ -256,6 +284,100 @@ where
                 return Ok(());
             }
         }
+    }
+}
+
+fn prepend_ws_share(data: &serde_json::Value, app: &mut App) {
+    use pdm::components::p2pool_client::{ShareInfo, UncleInfo};
+
+    fn s(v: &serde_json::Value, k: &str) -> String {
+        v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string()
+    }
+
+    let height = data.get("height").and_then(|v| v.as_u64()).unwrap_or(0);
+    let blockhash = s(data, "blockhash");
+
+    // Don't prepend a duplicate (WS can re-deliver)
+    if app.recent_shares.first().map(|r| r.height) == Some(height) {
+        return;
+    }
+
+    let share = ShareInfo {
+        blockhash: blockhash.clone(),
+        prev_blockhash: s(data, "prev_blockhash"),
+        height,
+        miner_address: s(data, "miner_address"),
+        timestamp: data.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0),
+        bits: s(data, "bits"),
+        uncles: data
+            .get("uncles")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|u| {
+                        let hash = u.as_str().map(String::from).or_else(|| {
+                            u.get("blockhash")
+                                .and_then(|v| v.as_str())
+                                .map(String::from)
+                        })?;
+                        Some(UncleInfo {
+                            blockhash: hash,
+                            prev_blockhash: s(u, "prev_blockhash"),
+                            miner_address: s(u, "miner_address"),
+                            timestamp: u.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0),
+                            height: u.get("height").and_then(|v| v.as_u64()).unwrap_or(0),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    };
+
+    if let Some(ref mut info) = app.chain_info {
+        info.chain_tip_height = Some(height);
+        info.chain_tip_blockhash = Some(blockhash);
+    }
+
+    app.recent_shares.insert(0, share);
+    if app.recent_shares.len() > 1_000 {
+        app.recent_shares.truncate(1_000);
+    }
+}
+fn handle_ws_peer(line: &str, app: &mut App) {
+    use pdm::components::p2pool_client::PeerInfo;
+
+    let pos = match line.find('{') {
+        Some(p) => p,
+        None => return,
+    };
+    let v: serde_json::Value = match serde_json::from_str(&line[pos..]) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    let data = match v.get("data") {
+        Some(d) => d,
+        None => return,
+    };
+
+    let peer_id = match data.get("peer_id").and_then(|p| p.as_str()) {
+        Some(id) => id.to_string(),
+        None => return,
+    };
+
+    let status = data.get("status").and_then(|s| s.as_str()).unwrap_or("");
+
+    match status {
+        "Connected" => {
+            // Add if not already present
+            if !app.peers.iter().any(|p| p.peer_id == peer_id) {
+                app.peers.push(PeerInfo { peer_id });
+            }
+        }
+        "Disconnected" => {
+            app.peers.retain(|p| p.peer_id != peer_id);
+        }
+        _ => {}
     }
 }
 

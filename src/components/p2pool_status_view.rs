@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::app::{App, P2POOL_STATUS_TABS};
+use crate::components::difficulty::difficulty_from_bits;
+use crate::components::p2pool_client::{ShareInfo, UncleInfo};
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Tabs, Wrap},
@@ -62,7 +64,10 @@ impl P2PoolStatusView {
                 )),
             ]
         } else {
-            vec![Line::from("Loading chain info...")]
+            vec![Line::from(Span::styled(
+                "Loading chain info...",
+                Style::default().fg(Color::DarkGray),
+            ))]
         };
 
         let paragraph = Paragraph::new(text)
@@ -73,37 +78,134 @@ impl P2PoolStatusView {
     }
 
     // SYSTEM TAB
+    // ── Drop-in replacement for render_system in p2pool_status_view.rs ──────────
+
     fn render_system(f: &mut Frame, app: &App, area: Rect) {
-        let api_status = if app.chain_info.is_some() {
-            "Connected"
+        let state = &app.p2pool_state;
+        let api_ok = app.chain_info.is_some();
+
+        let label = |s: &'static str| Span::styled(s, Style::default().fg(Color::Cyan));
+        let value = |s: String| Span::raw(s);
+
+        let api_span = if api_ok {
+            Span::styled("Connected", Style::default().fg(Color::Green))
         } else {
-            "Disconnected"
+            Span::styled("Unreachable", Style::default().fg(Color::Red))
         };
 
-        let miner_connected = if app.p2pool_state.miner_connected {
-            "Yes"
+        // "Miner Connected" is not exposed — show worker activity instead
+        let worker_span = if state.any_worker_active() {
+            Span::styled(
+                format!("{} worker(s) active", state.workers.len()),
+                Style::default().fg(Color::Green),
+            )
         } else {
-            "No"
+            Span::styled(
+                "No worker activity yet",
+                Style::default().fg(Color::DarkGray),
+            )
         };
 
-        let text = format!(
-            "API Status       : {}\n\
-             Miner Connected  : {}\n\
-             Last Share       : {}\n\
-             Last Block       : {}\n\
-             Last Submit Time : {}",
-            api_status,
-            miner_connected,
-            app.p2pool_state.last_share_status,
-            app.p2pool_state.last_block_status,
-            app.p2pool_state.last_submit_time,
+        let mut lines = vec![
+            Line::from(vec![label("API Status          : "), api_span]),
+            Line::from(vec![label("Worker Activity     : "), worker_span]),
+            Line::from(vec![
+                label("Shares Accepted     : "),
+                value(state.shares_accepted.to_string()),
+            ]),
+            Line::from(vec![
+                label("Shares Rejected     : "),
+                value(state.shares_rejected.to_string()),
+            ]),
+            Line::from(vec![
+                label("Pool Difficulty     : "),
+                value(Self::format_difficulty_f64(state.pool_difficulty)),
+            ]),
+            Line::from(vec![
+                label("Best Share          : "),
+                value(Self::format_difficulty_f64(state.best_share)),
+            ]),
+            Line::from(vec![
+                label("Last Share          : "),
+                value(state.last_share_status.clone()),
+            ]),
+            Line::from(vec![
+                label("Last Submit Time    : "),
+                value(state.last_submit_time.clone()),
+            ]),
+        ];
+
+        // Per-worker breakdown (only shown when workers exist)
+        if !state.workers.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "Workers",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+
+            for w in &state.workers {
+                let ts = if w.last_share_at > 0 {
+                    chrono::DateTime::from_timestamp(w.last_share_at as i64, 0)
+                        .map(|dt| dt.format("%H:%M:%S UTC").to_string())
+                        .unwrap_or_else(|| w.last_share_at.to_string())
+                } else {
+                    "-".to_string()
+                };
+
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(
+                        Self::truncate_addr(&w.address, 20),
+                        Style::default().fg(Color::White),
+                    ),
+                    Span::styled(
+                        format!("  shares:{}", w.shares_valid),
+                        Style::default().fg(Color::Green),
+                    ),
+                    Span::styled(
+                        format!("  last:{}", ts),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]));
+            }
+        }
+
+        f.render_widget(
+            Paragraph::new(lines)
+                .block(Block::default().borders(Borders::ALL).title(" System "))
+                .wrap(Wrap { trim: true }),
+            area,
         );
+    }
 
-        let paragraph = Paragraph::new(text)
-            .block(Block::default().borders(Borders::ALL).title(" System "))
-            .wrap(Wrap { trim: true });
+    fn format_difficulty_f64(value: f64) -> String {
+        if value <= 0.0 {
+            return "0".to_string();
+        }
+        const SUFFIXES: &[&str] = &["", "K", "M", "G", "T", "P"];
+        let mut scaled = value;
+        let mut tier = 0;
+        while scaled >= 1_000.0 && tier < SUFFIXES.len() - 1 {
+            scaled /= 1_000.0;
+            tier += 1;
+        }
+        if scaled >= 100.0 {
+            format!("{:.0}{}", scaled, SUFFIXES[tier])
+        } else if scaled >= 10.0 {
+            format!("{:.1}{}", scaled, SUFFIXES[tier])
+        } else {
+            format!("{:.2}{}", scaled, SUFFIXES[tier])
+        }
+    }
 
-        f.render_widget(paragraph, area);
+    fn truncate_addr(s: &str, max: usize) -> String {
+        if s.len() <= max {
+            s.to_string()
+        } else {
+            format!("{}…", &s[..max])
+        }
     }
 
     // LOGS TAB
@@ -125,7 +227,10 @@ impl P2PoolStatusView {
     fn render_peers(f: &mut Frame, app: &App, area: Rect) {
         let rows: Vec<Row> = if app.peers.is_empty() {
             vec![Row::new(vec![
-                Cell::from("No peers connected"),
+                Cell::from(Span::styled(
+                    "No peers connected",
+                    Style::default().fg(Color::DarkGray),
+                )),
                 Cell::from("-"),
                 Cell::from("-"),
             ])]
@@ -135,7 +240,7 @@ impl P2PoolStatusView {
                 .map(|peer| {
                     Row::new(vec![
                         Cell::from(peer.peer_id.clone()),
-                        Cell::from("Active"),
+                        Cell::from(Span::styled("Active", Style::default().fg(Color::Green))),
                         Cell::from("-"),
                     ])
                 })
@@ -165,32 +270,121 @@ impl P2PoolStatusView {
 
     // SHARES TAB
     fn render_shares(f: &mut Frame, app: &App, area: Rect) {
-        let mut items: Vec<ListItem> = vec![
-            ListItem::new(format!(
-                "Latest Status: {}",
-                app.p2pool_state.last_share_status
-            )),
-            ListItem::new(""),
-        ];
+        // Split: status line on top, table below
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(2), Constraint::Min(0)])
+            .split(area);
 
-        if app.recent_shares.is_empty() {
-            items.push(ListItem::new("No accepted shares yet..."));
-        } else {
-            for share in &app.recent_shares {
-                items.push(ListItem::new(format!(
-                    "Height: {} | Miner: {}",
-                    share.height, share.miner_address
-                )));
+        // Status line (mirrors "Latest Status" from the web Shares section)
+        let status_line = Line::from(vec![
+            Span::styled("Latest Status: ", Style::default().fg(Color::Cyan)),
+            Span::raw(app.p2pool_state.last_share_status.clone()),
+        ]);
+        f.render_widget(Paragraph::new(vec![status_line]), chunks[0]);
+
+        // Build flat row list: each share followed by its uncle rows (dimmed)
+        struct ShareRow<'a> {
+            height: String,
+            hash: String,
+            miner: String,
+            difficulty: String,
+            time: String,
+            uncles: String,
+            is_uncle: bool,
+            _phantom: std::marker::PhantomData<&'a ()>,
+        }
+
+        let mut rows: Vec<ShareRow> = Vec::new();
+
+        for share in &app.recent_shares {
+            rows.push(ShareRow {
+                height: share.height.to_string(),
+                hash: truncate(&share.blockhash, 10),
+                miner: truncate(&share.miner_address, 18),
+                difficulty: difficulty_from_bits(&share.bits),
+                time: format_ts(share.timestamp),
+                uncles: share.uncles.len().to_string(),
+                is_uncle: false,
+                _phantom: std::marker::PhantomData,
+            });
+
+            // Inline uncle rows — dimmed, indented miner column
+            for uncle in &share.uncles {
+                rows.push(ShareRow {
+                    height: uncle.height.to_string(),
+                    hash: truncate(&uncle.blockhash, 10),
+                    miner: format!("  └ {}", truncate(&uncle.miner_address, 14)),
+                    difficulty: "-".to_string(),
+                    time: format_ts(uncle.timestamp),
+                    uncles: "uncle".to_string(),
+                    is_uncle: true,
+                    _phantom: std::marker::PhantomData,
+                });
             }
         }
 
-        let list = List::new(items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Recent Shares "),
-        );
+        let header = Row::new(vec![
+            Cell::from("Height").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("Blockhash").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("Miner").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("Difficulty").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("Time").style(Style::default().add_modifier(Modifier::BOLD)),
+            Cell::from("Uncles").style(Style::default().add_modifier(Modifier::BOLD)),
+        ]);
 
-        f.render_widget(list, area);
+        let table_rows: Vec<Row> = if rows.is_empty() {
+            vec![Row::new(vec![
+                Cell::from(Span::styled(
+                    "No shares yet",
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Cell::from(""),
+                Cell::from(""),
+                Cell::from(""),
+                Cell::from(""),
+                Cell::from(""),
+            ])]
+        } else {
+            rows.iter()
+                .map(|r| {
+                    let style = if r.is_uncle {
+                        Style::default().fg(Color::DarkGray) // dimmed, like 0.55 opacity in CSS
+                    } else {
+                        Style::default()
+                    };
+                    Row::new(vec![
+                        Cell::from(Span::styled(r.height.clone(), style)),
+                        Cell::from(Span::styled(r.hash.clone(), style)),
+                        Cell::from(Span::styled(r.miner.clone(), style)),
+                        Cell::from(Span::styled(r.difficulty.clone(), style)),
+                        Cell::from(Span::styled(r.time.clone(), style)),
+                        Cell::from(Span::styled(r.uncles.clone(), style)),
+                    ])
+                })
+                .collect()
+        };
+
+        f.render_widget(
+            Table::new(
+                table_rows,
+                [
+                    Constraint::Length(9),  // Height
+                    Constraint::Length(12), // Hash
+                    Constraint::Min(20),    // Miner
+                    Constraint::Length(12), // Difficulty
+                    Constraint::Length(21), // Time
+                    Constraint::Length(7),  // Uncles
+                ],
+            )
+            .header(header)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Recent Shares "),
+            ),
+            chunks[1],
+        );
     }
 }
 
@@ -198,4 +392,18 @@ impl Default for P2PoolStatusView {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..max])
+    }
+}
+
+fn format_ts(timestamp: u64) -> String {
+    chrono::DateTime::from_timestamp(timestamp as i64, 0)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_else(|| timestamp.to_string())
 }

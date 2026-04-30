@@ -4,6 +4,7 @@
 
 pub mod bitcoin_config_view;
 pub mod bitcoin_status_view;
+pub mod difficulty;
 pub mod file_explorer;
 pub mod home_view;
 pub mod ln_config_view;
