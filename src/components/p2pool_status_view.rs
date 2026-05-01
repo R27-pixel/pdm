@@ -45,23 +45,30 @@ impl P2PoolStatusView {
         }
     }
 
-    // CHAIN INFO TAB
     fn render_chain_info(f: &mut Frame, app: &App, area: Rect) {
         let text = if let Some(info) = &app.chain_info {
             vec![
                 Line::from(format!(
-                    "Chain Tip Height      : {}",
+                    "Genesis Blockhash      : {}",
+                    info.genesis_blockhash.as_deref().unwrap_or("-")
+                )),
+                Line::from(format!(
+                    "Chain Tip Height       : {}",
                     info.chain_tip_height.unwrap_or(0)
                 )),
                 Line::from(format!(
-                    "Top Candidate Height  : {:?}",
-                    info.top_candidate_height
-                )),
-                Line::from(format!("Total Work            : {}", info.total_work)),
-                Line::from(format!(
-                    "Tip Blockhash         : {}",
+                    "Chain Tip Blockhash    : {}",
                     info.chain_tip_blockhash.as_deref().unwrap_or("-")
                 )),
+                Line::from(format!(
+                    "Top Candidate Height   : {:?}",
+                    info.top_candidate_height
+                )),
+                Line::from(format!(
+                    "Top Candidate Blockhash: {}",
+                    info.top_candidate_blockhash.as_deref().unwrap_or("-")
+                )),
+                Line::from(format!("Total Work             : {}", info.total_work)),
             ]
         } else {
             vec![Line::from(Span::styled(
@@ -78,11 +85,13 @@ impl P2PoolStatusView {
     }
 
     // SYSTEM TAB
-    // ── Drop-in replacement for render_system in p2pool_status_view.rs ──────────
-
     fn render_system(f: &mut Frame, app: &App, area: Rect) {
         let state = &app.p2pool_state;
-        let api_ok = app.chain_info.is_some();
+        let api_ok = app
+            .api_status
+            .as_ref()
+            .map(|s| s.trim() == "OK")
+            .unwrap_or(false);
 
         let label = |s: &'static str| Span::styled(s, Style::default().fg(Color::Cyan));
         let value = |s: String| Span::raw(s);
@@ -124,6 +133,10 @@ impl P2PoolStatusView {
             Line::from(vec![
                 label("Best Share          : "),
                 value(Self::format_difficulty_f64(state.best_share)),
+            ]),
+            Line::from(vec![
+                label("Best Share Ever     : "),
+                value(Self::format_difficulty_f64(state.best_share_ever)),
             ]),
             Line::from(vec![
                 label("Last Share          : "),
@@ -240,7 +253,7 @@ impl P2PoolStatusView {
                 .map(|peer| {
                     Row::new(vec![
                         Cell::from(peer.peer_id.clone()),
-                        Cell::from(Span::styled("Active", Style::default().fg(Color::Green))),
+                        Cell::from(peer.status.clone()),
                         Cell::from("-"),
                     ])
                 })

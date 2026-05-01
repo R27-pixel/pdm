@@ -12,6 +12,8 @@ pub struct ParsedP2PoolState {
     pub pool_difficulty: f64,
     /// Best share difficulty this session (from metrics best_share)
     pub best_share: f64,
+    /// Best share ever (from metrics best_share_ever)
+    pub best_share_ever: f64,
 
     /// Per-worker stats parsed from worker_* metric lines.
     /// Keyed by worker address.
@@ -44,6 +46,7 @@ impl ParsedP2PoolState {
             shares_rejected: 0,
             pool_difficulty: 0.0,
             best_share: 0.0,
+            best_share_ever: 0.0,
             workers: Vec::new(),
             last_share_status: "No shares yet".to_string(),
             last_submit_time: "-".to_string(),
@@ -87,6 +90,12 @@ impl ParsedP2PoolState {
             // best_share <F>  (space avoids matching best_share_ever)
             if line.starts_with("best_share ") {
                 self.best_share = last_word_as(line).unwrap_or(0.0);
+                continue;
+            }
+
+            // best_share_ever <F>
+            if line.starts_with("best_share_ever") {
+                self.best_share_ever = last_word_as(line).unwrap_or(0.0);
                 continue;
             }
 
@@ -216,6 +225,7 @@ shares_accepted_total 7
 shares_rejected_total 2
 pool_difficulty 10000
 best_share 99999
+best_share_ever 199999
 worker_shares_valid_total{address="tb1qabc"} 7
 worker_last_share_at{address="tb1qabc"} 1777530500
 worker_best_share{address="tb1qabc"} 99999
@@ -229,6 +239,7 @@ worker_best_share{address="tb1qabc"} 99999
         assert_eq!(s.shares_rejected, 2);
         assert_eq!(s.pool_difficulty, 10000.0);
         assert_eq!(s.best_share, 99999.0);
+        assert_eq!(s.best_share_ever, 199999.0);
     }
 
     #[test]

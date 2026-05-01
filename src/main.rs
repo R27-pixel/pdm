@@ -17,6 +17,7 @@ use std::ops::ControlFlow;
 
 use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD};
+use chrono;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
@@ -31,6 +32,9 @@ use std::io;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
+
+const REST_POLL_INTERVAL: Duration = Duration::from_secs(5);
+const KEY_POLL_TIMEOUT: Duration = Duration::from_millis(100);
 
 fn main() -> Result<()> {
     // Setup Terminal
@@ -74,8 +78,11 @@ fn sidebar_nav(key: KeyCode, app: &mut App) -> AppAction {
         _ => AppAction::None,
     }
 }
-const REST_POLL_INTERVAL: Duration = Duration::from_secs(5);
-const KEY_POLL_TIMEOUT: Duration = Duration::from_millis(100);
+fn format_ts(timestamp: u64) -> String {
+    chrono::DateTime::from_timestamp(timestamp as i64, 0)
+        .map(|dt| dt.format("%H:%M:%S UTC").to_string())
+        .unwrap_or_else(|| timestamp.to_string())
+}
 async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()>
 where
     B::Error: Send + Sync + 'static,
@@ -103,17 +110,41 @@ where
 
     loop {
         if last_rest_poll.elapsed() >= REST_POLL_INTERVAL {
+            // API health
+            if let Ok(health) = client.fetch_health(basic_auth.as_deref()).await {
+                app.api_status = Some(health);
+            }
             //chain info
-            if let Ok(info) = client.fetch_chain_info().await {
+            if let Ok(info) = client.fetch_chain_info(basic_auth.as_deref()).await {
                 app.chain_info = Some(info);
             }
             // Peers
-            if let Ok(peers) = client.fetch_peers().await {
+            if let Ok(peers) = client.fetch_peers(basic_auth.as_deref()).await {
                 app.peers = peers;
             }
 
-            // Recent shares (latest 10)
-            if let Ok(shares) = client.fetch_shares(None, Some(10)).await {
+            // Last share
+            if let Ok(last_share_resp) = client
+                .fetch_shares(None, Some(1), basic_auth.as_deref())
+                .await
+            {
+                if let Some(last_share) = last_share_resp.shares.first() {
+                    // Update last share status if not already set by WS
+                    if app.p2pool_state.last_share_status == "No shares yet"
+                        || !app.p2pool_state.last_share_status.starts_with("Accepted")
+                    {
+                        app.p2pool_state.last_share_status =
+                            format!("Accepted at height {}", last_share.height);
+                        app.p2pool_state.last_submit_time = format_ts(last_share.timestamp);
+                    }
+                }
+            }
+
+            // Recent shares (latest 100)
+            if let Ok(shares) = client
+                .fetch_shares(None, Some(100), basic_auth.as_deref())
+                .await
+            {
                 // Only update from REST if WS hasn't added newer shares
                 let rest_tip = shares.shares.first().map(|s| s.height);
                 let ws_tip = app.recent_shares.first().map(|s| s.height);
@@ -371,7 +402,10 @@ fn handle_ws_peer(line: &str, app: &mut App) {
         "Connected" => {
             // Add if not already present
             if !app.peers.iter().any(|p| p.peer_id == peer_id) {
-                app.peers.push(PeerInfo { peer_id });
+                app.peers.push(PeerInfo {
+                    peer_id,
+                    status: status.to_string(),
+                });
             }
         }
         "Disconnected" => {

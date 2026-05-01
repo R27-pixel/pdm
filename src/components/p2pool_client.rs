@@ -28,6 +28,7 @@ pub struct ChainInfo {
 #[derive(Debug, Clone, Deserialize)]
 pub struct PeerInfo {
     pub peer_id: String,
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -96,10 +97,15 @@ impl P2PoolClient {
         }
     }
 
-    pub async fn fetch_health(&self) -> Result<String, reqwest::Error> {
+    pub async fn fetch_health(&self, basic_auth: Option<&str>) -> Result<String, reqwest::Error> {
         let url = format!("{}/health", self.base_url);
 
-        let response = self.client.get(url).send().await?;
+        let mut request = self.client.get(url);
+        if let Some(auth) = basic_auth {
+            request = request.header("Authorization", auth);
+        }
+
+        let response = request.send().await?;
         let text = response.text().await?;
 
         Ok(text)
@@ -119,19 +125,35 @@ impl P2PoolClient {
         Ok(text)
     }
 
-    pub async fn fetch_chain_info(&self) -> Result<ChainInfo, reqwest::Error> {
+    pub async fn fetch_chain_info(
+        &self,
+        basic_auth: Option<&str>,
+    ) -> Result<ChainInfo, reqwest::Error> {
         let url = format!("{}/chain_info", self.base_url);
 
-        let response = self.client.get(url).send().await?;
+        let mut request = self.client.get(url);
+        if let Some(auth) = basic_auth {
+            request = request.header("Authorization", auth);
+        }
+
+        let response = request.send().await?;
         let data = response.json::<ChainInfo>().await?;
 
         Ok(data)
     }
 
-    pub async fn fetch_peers(&self) -> Result<Vec<PeerInfo>, reqwest::Error> {
+    pub async fn fetch_peers(
+        &self,
+        basic_auth: Option<&str>,
+    ) -> Result<Vec<PeerInfo>, reqwest::Error> {
         let url = format!("{}/peers", self.base_url);
 
-        let response = self.client.get(url).send().await?;
+        let mut request = self.client.get(url);
+        if let Some(auth) = basic_auth {
+            request = request.header("Authorization", auth);
+        }
+
+        let response = request.send().await?;
         let data = response.json::<Vec<PeerInfo>>().await?;
 
         Ok(data)
@@ -141,6 +163,7 @@ impl P2PoolClient {
         &self,
         to: Option<u64>,
         num: Option<u64>,
+        basic_auth: Option<&str>,
     ) -> Result<SharesResponse, reqwest::Error> {
         let url = format!("{}/shares", self.base_url);
 
@@ -152,6 +175,10 @@ impl P2PoolClient {
 
         if let Some(num) = num {
             request = request.query(&[("num", num)]);
+        }
+
+        if let Some(auth) = basic_auth {
+            request = request.header("Authorization", auth);
         }
 
         let response = request.send().await?;
@@ -264,8 +291,10 @@ mod tests {
     fn test_peer_model() {
         let peer = PeerInfo {
             peer_id: "12D3KooWExample".to_string(),
+            status: "Active".to_string(),
         };
 
         assert_eq!(peer.peer_id, "12D3KooWExample");
+        assert_eq!(peer.status, "Active");
     }
 }

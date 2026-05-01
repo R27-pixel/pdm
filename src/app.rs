@@ -117,6 +117,7 @@ pub struct App {
     pub recent_shares: Vec<ShareInfo>,
     pub p2pool_logs: Vec<String>,
     pub p2pool_state: ParsedP2PoolState,
+    pub api_status: Option<String>,
 }
 
 impl App {
@@ -145,6 +146,7 @@ impl App {
             recent_shares: Vec::new(),
             p2pool_logs: Vec::new(),
             p2pool_state: ParsedP2PoolState::new(),
+            api_status: None,
         }
     }
 

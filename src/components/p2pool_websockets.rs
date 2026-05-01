@@ -11,6 +11,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct WsPeerEvent {
     pub peer_id: String,
+    pub status: String,
 }
 
 #[derive(Debug, Deserialize)]
