@@ -5,6 +5,7 @@
 use crate::bitcoin_config::ConfigEntry as BitcoinEntry;
 use crate::components::bitcoin_config_view::BitcoinConfigView;
 use crate::components::file_explorer::FileExplorer;
+use crate::components::p2pool_client::{ChainInfo, P2PoolClient};
 use crate::components::p2pool_config_view::P2PoolConfigView;
 use crate::components::settings_view::SettingsView;
 use crate::settings::Settings;
@@ -30,6 +31,11 @@ pub const MAX_SIDEBAR_INDEX: usize = SIDEBAR_ITEMS.len() - 1;
 pub const BITCOIN_STATUS_TABS: &[&str] = &["Chain Info", "System", "Logs", "Peers"];
 
 pub const MAX_BITCOIN_STATUS_TAB: usize = BITCOIN_STATUS_TABS.len() - 1;
+
+/// Tab labels for the P2Pool Status view
+pub const P2POOL_STATUS_TABS: &[&str] = &["Chain Info"];
+
+pub const MAX_P2POOL_STATUS_TAB: usize = P2POOL_STATUS_TABS.len() - 1;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CurrentScreen {
@@ -96,12 +102,16 @@ pub struct App {
     pub bitcoin_data: Vec<BitcoinEntry>,
     pub bitcoin_status_tab: usize,
     pub settings: Settings,
+    pub p2pool_client: P2PoolClient,
     /// Cached value of the `HOME` environment variable, used for path display.
     /// Populated once at startup to avoid repeated syscalls during rendering.
     pub home_dir: String,
     /// Cached result of `settings::config_dir()`, used to display the default
     /// settings storage path without repeated env-var lookups during rendering.
     pub config_dir: PathBuf,
+    pub p2pool_status_tab: usize,
+    pub chain_info: Option<ChainInfo>,
+    pub p2pool_chain_info_error: Option<String>,
 }
 
 impl App {
@@ -121,8 +131,32 @@ impl App {
             bitcoin_data: Vec::new(),
             bitcoin_status_tab: 0,
             settings: Settings::default(),
+            p2pool_client: P2PoolClient::new(),
             home_dir: std::env::var("HOME").unwrap_or_default(),
             config_dir: crate::settings::config_dir().unwrap_or_default(),
+            p2pool_status_tab: 0,
+            chain_info: None,
+            p2pool_chain_info_error: None,
+        }
+    }
+
+    #[must_use]
+    pub fn new_with_client(client: P2PoolClient) -> App {
+        let mut app = App::new();
+        app.p2pool_client = client;
+        app
+    }
+
+    pub fn refresh_chain_info(&mut self) {
+        match self.p2pool_client.fetch_chain_info() {
+            Ok(info) => {
+                self.chain_info = Some(info);
+                self.p2pool_chain_info_error = None;
+            }
+            Err(e) => {
+                self.chain_info = None;
+                self.p2pool_chain_info_error = Some(e.to_string());
+            }
         }
     }
 
@@ -142,6 +176,9 @@ impl App {
         }
         if let Some(&(_, screen)) = SIDEBAR_ITEMS.get(self.sidebar_index) {
             self.current_screen = screen;
+            if self.current_screen == CurrentScreen::P2PoolStatus {
+                self.refresh_chain_info();
+            }
         }
     }
 }

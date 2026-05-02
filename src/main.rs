@@ -36,6 +36,7 @@ fn main() -> Result<()> {
     let mut app = App::new();
     app.settings = load_settings();
     bootstrap_from_settings(&mut app);
+    app.refresh_chain_info();
     let res = run_app(&mut terminal, &mut app);
 
     // Restore Terminal
