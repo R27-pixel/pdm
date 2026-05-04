@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::config::load_api_config;
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -38,7 +38,7 @@ impl P2PoolClient {
                 let credentials = cfg.auth_user.zip(cfg.auth_pass);
                 (cfg.base_url, credentials)
             })
-            .unwrap_or_else(|_| ("http://localhost:8332".to_string(), None));
+            .unwrap_or_else(|_| ("http://localhost:46884".to_string(), None));
 
         Self {
             client: build_client(),
@@ -68,7 +68,7 @@ impl P2PoolClient {
         self
     }
 
-    pub fn fetch_chain_info(&self) -> Result<ChainInfo, reqwest::Error> {
+    pub async fn fetch_chain_info(&self) -> Result<ChainInfo, reqwest::Error> {
         let url = format!("{}/chain_info", self.base_url);
         let mut request = self.client.get(url);
 
@@ -76,8 +76,8 @@ impl P2PoolClient {
             request = request.basic_auth(user, Some(pass));
         }
 
-        let response = request.send()?.error_for_status()?;
-        let data = response.json::<ChainInfo>()?;
+        let response = request.send().await?.error_for_status()?;
+        let data = response.json::<ChainInfo>().await?;
 
         Ok(data)
     }
@@ -95,9 +95,9 @@ mod tests {
     use mockito::Server;
     use serde_json::json;
 
-    #[test]
-    fn test_fetch_chain_info_success() {
-        let mut server = Server::new();
+    #[tokio::test]
+    async fn test_fetch_chain_info_success() {
+        let mut server = Server::new_async().await;
 
         let mock = server
             .mock("GET", "/chain_info")
@@ -115,7 +115,7 @@ mod tests {
             .create();
 
         let client = P2PoolClient::with_base_url(server.url());
-        let result = client.fetch_chain_info().unwrap();
+        let result = client.fetch_chain_info().await.unwrap();
 
         assert_eq!(result.chain_tip_height, Some(850_000));
         assert_eq!(
@@ -133,9 +133,9 @@ mod tests {
         mock.assert();
     }
 
-    #[test]
-    fn test_fetch_chain_info_sends_basic_auth() {
-        let mut server = Server::new();
+    #[tokio::test]
+    async fn test_fetch_chain_info_sends_basic_auth() {
+        let mut server = Server::new_async().await;
 
         let mock = server
             .mock("GET", "/chain_info")
@@ -148,23 +148,23 @@ mod tests {
         let client =
             P2PoolClient::with_base_url(server.url()).with_auth("user".into(), "password".into());
 
-        client.fetch_chain_info().unwrap();
+        client.fetch_chain_info().await.unwrap();
         mock.assert();
     }
 
-    #[test]
-    fn test_fetch_chain_info_errors_on_http_500() {
-        let mut server = Server::new();
+    #[tokio::test]
+    async fn test_fetch_chain_info_errors_on_http_500() {
+        let mut server = Server::new_async().await;
 
         server.mock("GET", "/chain_info").with_status(500).create();
 
         let client = P2PoolClient::with_base_url(server.url());
-        assert!(client.fetch_chain_info().is_err());
+        assert!(client.fetch_chain_info().await.is_err());
     }
 
-    #[test]
-    fn test_fetch_chain_info_returns_error_on_missing_required_field() {
-        let mut server = Server::new();
+    #[tokio::test]
+    async fn test_fetch_chain_info_returns_error_on_missing_required_field() {
+        let mut server = Server::new_async().await;
 
         server
             .mock("GET", "/chain_info")
@@ -174,12 +174,12 @@ mod tests {
             .create();
 
         let client = P2PoolClient::with_base_url(server.url());
-        assert!(client.fetch_chain_info().is_err());
+        assert!(client.fetch_chain_info().await.is_err());
     }
 
-    #[test]
-    fn test_with_client_can_be_injected_for_isolated_tests() {
-        let mut server = Server::new();
+    #[tokio::test]
+    async fn test_with_client_can_be_injected_for_isolated_tests() {
+        let mut server = Server::new_async().await;
 
         let mock = server
             .mock("GET", "/chain_info")
@@ -197,7 +197,7 @@ mod tests {
             .create();
 
         let client = P2PoolClient::with_client(build_client(), server.url());
-        let result = client.fetch_chain_info().unwrap();
+        let result = client.fetch_chain_info().await.unwrap();
 
         assert_eq!(result.chain_tip_height, Some(1));
         assert_eq!(result.total_work, "abc");

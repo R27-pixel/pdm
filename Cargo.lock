@@ -1716,6 +1716,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "tempfile",
+ "tokio",
  "toml 0.8.23",
  "toml_edit",
  "unicode-width",

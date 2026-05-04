@@ -24,7 +24,8 @@ use crossterm::{
 use ratatui::{Terminal, backend::Backend, backend::CrosstermBackend};
 use std::io;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Setup Terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -36,7 +37,6 @@ fn main() -> Result<()> {
     let mut app = App::new();
     app.settings = load_settings();
     bootstrap_from_settings(&mut app);
-    app.refresh_chain_info();
     let res = run_app(&mut terminal, &mut app);
 
     // Restore Terminal
@@ -70,6 +70,7 @@ where
     <B as Backend>::Error: Send + Sync + 'static,
 {
     loop {
+        app.poll_chain_info();
         terminal.draw(|f| ui::ui(f, app))?;
 
         if let Event::Key(key) = event::read()? {

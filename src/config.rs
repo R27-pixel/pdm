@@ -13,11 +13,14 @@ pub struct ApiConfig {
 
 pub fn load_api_config() -> Result<ApiConfig> {
     let settings = Config::builder()
-        .add_source(File::with_name("config/config"))
+        .add_source(File::with_name("config/config").required(false))
+        .add_source(
+            File::with_name(concat!(env!("CARGO_MANIFEST_DIR"), "/config/config")).required(false),
+        )
         .build()?;
 
-    let host: String = settings.get("api.host")?;
-    let port: u16 = settings.get("api.port")?;
+    let host: String = settings.get("api.host").unwrap_or("127.0.0.1".into());
+    let port: u16 = settings.get("api.port").unwrap_or(9332);
     let auth_user: Option<String> = settings.get("api.auth_user").ok();
     let auth_pass: Option<String> = settings.get("api.auth_pass").ok();
 
