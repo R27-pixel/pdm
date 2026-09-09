@@ -476,6 +476,7 @@ mod tests {
 
     const SHARE_TAB: usize = 1;
     const PEER_TAB: usize = 2;
+    const SYSTEM_TAB: usize = 3;
 
     fn render_view(app: &App) -> String {
         let backend = TestBackend::new(100, 25);
@@ -636,6 +637,17 @@ mod tests {
         let output = render_view(&app);
 
         assert!(output.contains("Select a P2Poolv2 config file"));
+    }
+
+    #[test]
+    fn render_dispatches_system_tab_and_shows_service_controls() {
+        let mut app = App::new();
+        app.p2pool_status_tab = SYSTEM_TAB;
+
+        let output = render_view(&app);
+
+        assert!(output.contains("Service Status : Stopped"));
+        assert!(output.contains("[s] Start    [x] Stop    [r] Restart"));
     }
 
     #[test]

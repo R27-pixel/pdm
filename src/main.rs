@@ -812,6 +812,38 @@ port = 46884
     }
 
     #[test]
+    fn dispatch_key_p2pool_system_tab_maps_service_controls() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::P2PoolStatus;
+        app.p2pool_status_tab = 3;
+
+        assert!(matches!(
+            dispatch_key(press(KeyCode::Char('s')), &mut app),
+            KeyOutcome::Action(AppAction::StartP2Pool)
+        ));
+        assert!(matches!(
+            dispatch_key(press(KeyCode::Char('x')), &mut app),
+            KeyOutcome::Action(AppAction::StopP2Pool)
+        ));
+        assert!(matches!(
+            dispatch_key(press(KeyCode::Char('r')), &mut app),
+            KeyOutcome::Action(AppAction::RestartP2Pool)
+        ));
+    }
+
+    #[test]
+    fn dispatch_key_service_controls_are_ignored_on_other_p2pool_tabs() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::P2PoolStatus;
+        app.p2pool_status_tab = 2;
+
+        assert!(matches!(
+            dispatch_key(press(KeyCode::Char('s')), &mut app),
+            KeyOutcome::Action(AppAction::None)
+        ));
+    }
+
+    #[test]
     fn dispatch_key_file_explorer_delegates_to_explorer() {
         let mut app = App::new();
         app.current_screen = CurrentScreen::FileExplorer;
