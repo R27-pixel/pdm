@@ -32,7 +32,7 @@ pub const BITCOIN_STATUS_TABS: &[&str] = &["Chain Info", "Peers"];
 pub const MAX_BITCOIN_STATUS_TAB: usize = BITCOIN_STATUS_TABS.len() - 1;
 
 /// Tab labels for the P2Pool Status view
-pub const P2POOL_STATUS_TABS: &[&str] = &["Chain Info", "Shares", "Peers Info"];
+pub const P2POOL_STATUS_TABS: &[&str] = &["Chain Info", "Shares", "Peers Info", "System"];
 
 pub const MAX_P2POOL_STATUS_TAB: usize = P2POOL_STATUS_TABS.len() - 1;
 
@@ -72,6 +72,10 @@ pub enum AppAction {
     CommitP2PoolEdit(usize, String),
     /// Saves p2pool config to disk
     SaveP2PoolConfig,
+    /// P2poolv2 Service
+    StartP2Pool,
+    StopP2Pool,
+    RestartP2Pool,
     // Open the file explorer to pick a path for a settings field (field index)
     OpenExplorerForSettings(usize),
     // Clear a settings field by index, setting it back to None
