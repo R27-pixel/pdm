@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::app::{App, P2POOL_STATUS_TABS};
+use crate::p2poolv2_service::P2PoolV2Service;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, Tabs, Wrap},
@@ -49,6 +50,7 @@ impl P2PoolStatusView {
             0 => Self::render_chain_info(f, app, outer[1]),
             1 => Self::render_share_info(f, app, outer[1]),
             2 => Self::render_peer_info(f, app, outer[1]),
+            3 => Self::render_system_info(f, app, outer[1]),
             _ => {}
         }
     }
@@ -205,6 +207,27 @@ impl P2PoolStatusView {
         f.render_widget(paragraph, area);
     }
 
+    fn render_system_info(f: &mut Frame, _app: &App, area: Rect) {
+        let running = P2PoolV2Service::is_running().unwrap_or(false);
+
+        let status = if running {
+            Span::styled("Running", Style::default().fg(Color::Green))
+        } else {
+            Span::styled("Stopped", Style::default().fg(Color::Red))
+        };
+
+        let text = vec![
+            Line::from(vec![Span::raw("Service Status : "), status]),
+            Line::from(""),
+            Line::from("[s] Start    [x] Stop    [r] Restart"),
+        ];
+
+        let paragraph = Paragraph::new(text)
+            .block(Block::default().borders(Borders::ALL).title(" System "))
+            .wrap(Wrap { trim: true });
+
+        f.render_widget(paragraph, area);
+    }
     fn short_value(value: &str, max_len: usize) -> String {
         if value.len() <= max_len {
             return value.to_string();

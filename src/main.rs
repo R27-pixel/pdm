@@ -9,6 +9,7 @@ use pdm::app::{
 };
 use pdm::components::settings_view::{FIELDS, FieldKind};
 use pdm::p2poolv2_config::{apply_edit as apply_p2pool_edit, flatten_config};
+use pdm::p2poolv2_service::P2PoolV2Service;
 use pdm::settings::{load_settings, save_settings};
 use pdm::ui;
 use std::ops::ControlFlow;
@@ -151,6 +152,9 @@ fn dispatch_key(key: event::KeyEvent, app: &mut App) -> KeyOutcome {
                 }
                 AppAction::None
             }
+            KeyCode::Char('s') if app.p2pool_status_tab == 3 => AppAction::StartP2Pool,
+            KeyCode::Char('x') if app.p2pool_status_tab == 3 => AppAction::StopP2Pool,
+            KeyCode::Char('r') if app.p2pool_status_tab == 3 => AppAction::RestartP2Pool,
             k => sidebar_nav(k, app),
         },
 
@@ -391,6 +395,16 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<ControlFlow<()>> {
                     }
                 }
             }
+        }
+
+        AppAction::StartP2Pool => {
+            P2PoolV2Service::start()?;
+        }
+        AppAction::StopP2Pool => {
+            P2PoolV2Service::stop()?;
+        }
+        AppAction::RestartP2Pool => {
+            P2PoolV2Service::restart()?;
         }
 
         AppAction::None => {}
