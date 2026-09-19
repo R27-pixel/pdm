@@ -106,6 +106,7 @@ pub struct App {
     pub p2pool_status_tab: usize,
     pub chain_info: Option<ChainInfo>,
     pub p2pool_chain_info_error: Option<String>,
+    pub p2pool_service_error: Option<String>,
     pub share_info: Option<SharesResponse>,
     pub p2pool_share_info_error: Option<String>,
     pub peer_info: Option<Vec<PeerInfo>>,
@@ -159,6 +160,7 @@ impl App {
             p2pool_status_tab: 0,
             chain_info: None,
             p2pool_chain_info_error: None,
+            p2pool_service_error: None,
             share_info: None,
             p2pool_share_info_error: None,
             peer_info: None,
@@ -190,12 +192,14 @@ impl App {
 
     pub fn set_p2pool_config(&mut self, config: P2PoolConfig) {
         self.p2pool_config = Some(config);
+        self.p2pool_service_error = None;
         self.refresh_p2pool_clients_from_config();
         self.clear_p2pool_status_data();
     }
 
     pub fn clear_p2pool_config(&mut self) {
         self.p2pool_config = None;
+        self.p2pool_service_error = None;
         self.p2pool_client = P2PoolClient::new();
         self.p2pool_websocket_client = self.p2pool_client.websocket_client();
         self.clear_p2pool_status_data();

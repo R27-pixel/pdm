@@ -9,7 +9,7 @@ use pdm::app::{
 };
 use pdm::components::settings_view::{FIELDS, FieldKind};
 use pdm::p2poolv2_config::{apply_edit as apply_p2pool_edit, flatten_config};
-use pdm::p2poolv2_service::P2PoolV2Service;
+use pdm::p2poolv2_service::{P2PoolV2Service, instance_from_config_path};
 use pdm::settings::{load_settings, save_settings};
 use pdm::ui;
 use std::ops::ControlFlow;
@@ -152,9 +152,42 @@ fn dispatch_key(key: event::KeyEvent, app: &mut App) -> KeyOutcome {
                 }
                 AppAction::None
             }
-            KeyCode::Char('s') if app.p2pool_status_tab == 3 => AppAction::StartP2Pool,
-            KeyCode::Char('x') if app.p2pool_status_tab == 3 => AppAction::StopP2Pool,
-            KeyCode::Char('r') if app.p2pool_status_tab == 3 => AppAction::RestartP2Pool,
+            KeyCode::Char('s') if app.p2pool_status_tab == 3 => {
+                if app
+                    .p2pool_conf_path
+                    .as_deref()
+                    .and_then(instance_from_config_path)
+                    .is_some()
+                {
+                    AppAction::StartP2Pool
+                } else {
+                    AppAction::None
+                }
+            }
+            KeyCode::Char('x') if app.p2pool_status_tab == 3 => {
+                if app
+                    .p2pool_conf_path
+                    .as_deref()
+                    .and_then(instance_from_config_path)
+                    .is_some()
+                {
+                    AppAction::StopP2Pool
+                } else {
+                    AppAction::None
+                }
+            }
+            KeyCode::Char('r') if app.p2pool_status_tab == 3 => {
+                if app
+                    .p2pool_conf_path
+                    .as_deref()
+                    .and_then(instance_from_config_path)
+                    .is_some()
+                {
+                    AppAction::RestartP2Pool
+                } else {
+                    AppAction::None
+                }
+            }
             k => sidebar_nav(k, app),
         },
 
@@ -398,13 +431,40 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<ControlFlow<()>> {
         }
 
         AppAction::StartP2Pool => {
-            P2PoolV2Service::start()?;
+            app.p2pool_service_error = None;
+            if let Some(instance) = app
+                .p2pool_conf_path
+                .as_deref()
+                .and_then(instance_from_config_path)
+            {
+                if let Err(error) = P2PoolV2Service::start(&instance) {
+                    app.p2pool_service_error = Some(format!("Start failed: {error}"));
+                }
+            }
         }
         AppAction::StopP2Pool => {
-            P2PoolV2Service::stop()?;
+            app.p2pool_service_error = None;
+            if let Some(instance) = app
+                .p2pool_conf_path
+                .as_deref()
+                .and_then(instance_from_config_path)
+            {
+                if let Err(error) = P2PoolV2Service::stop(&instance) {
+                    app.p2pool_service_error = Some(format!("Stop failed: {error}"));
+                }
+            }
         }
         AppAction::RestartP2Pool => {
-            P2PoolV2Service::restart()?;
+            app.p2pool_service_error = None;
+            if let Some(instance) = app
+                .p2pool_conf_path
+                .as_deref()
+                .and_then(instance_from_config_path)
+            {
+                if let Err(error) = P2PoolV2Service::restart(&instance) {
+                    app.p2pool_service_error = Some(format!("Restart failed: {error}"));
+                }
+            }
         }
 
         AppAction::None => {}
@@ -812,10 +872,33 @@ port = 46884
     }
 
     #[test]
-    fn dispatch_key_p2pool_system_tab_maps_service_controls() {
+    fn dispatch_key_p2pool_system_tab_without_config_ignores_service_controls() {
         let mut app = App::new();
         app.current_screen = CurrentScreen::P2PoolStatus;
         app.p2pool_status_tab = 3;
+
+        assert!(matches!(
+            dispatch_key(press(KeyCode::Char('s')), &mut app),
+            KeyOutcome::Action(AppAction::None)
+        ));
+        assert!(matches!(
+            dispatch_key(press(KeyCode::Char('x')), &mut app),
+            KeyOutcome::Action(AppAction::None)
+        ));
+        assert!(matches!(
+            dispatch_key(press(KeyCode::Char('r')), &mut app),
+            KeyOutcome::Action(AppAction::None)
+        ));
+    }
+
+    #[test]
+    fn dispatch_key_p2pool_system_tab_maps_managed_service_controls() {
+        let home = std::env::var_os("HOME").expect("HOME is set for this test");
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::P2PoolStatus;
+        app.p2pool_status_tab = 3;
+        app.p2pool_conf_path =
+            Some(std::path::PathBuf::from(home).join(".config/p2poolv2/config-signet.toml"));
 
         assert!(matches!(
             dispatch_key(press(KeyCode::Char('s')), &mut app),
