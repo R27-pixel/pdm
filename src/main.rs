@@ -83,6 +83,7 @@ where
         app.poll_chain_info();
         app.poll_share_info();
         app.poll_peer_info();
+        app.poll_storage_status();
         app.poll_live_p2pool_events();
         terminal.draw(|f| ui::ui(f, app))?;
 
@@ -152,7 +153,7 @@ fn dispatch_key(key: event::KeyEvent, app: &mut App) -> KeyOutcome {
                 }
                 AppAction::None
             }
-            KeyCode::Char('s') if app.p2pool_status_tab == 3 => {
+            KeyCode::Char('s') if app.p2pool_status_tab == 4 => {
                 if app
                     .p2pool_conf_path
                     .as_deref()
@@ -164,7 +165,7 @@ fn dispatch_key(key: event::KeyEvent, app: &mut App) -> KeyOutcome {
                     AppAction::None
                 }
             }
-            KeyCode::Char('x') if app.p2pool_status_tab == 3 => {
+            KeyCode::Char('x') if app.p2pool_status_tab == 4 => {
                 if app
                     .p2pool_conf_path
                     .as_deref()
@@ -176,7 +177,7 @@ fn dispatch_key(key: event::KeyEvent, app: &mut App) -> KeyOutcome {
                     AppAction::None
                 }
             }
-            KeyCode::Char('r') if app.p2pool_status_tab == 3 => {
+            KeyCode::Char('r') if app.p2pool_status_tab == 4 => {
                 if app
                     .p2pool_conf_path
                     .as_deref()
@@ -875,7 +876,7 @@ port = 46884
     fn dispatch_key_p2pool_system_tab_without_config_ignores_service_controls() {
         let mut app = App::new();
         app.current_screen = CurrentScreen::P2PoolStatus;
-        app.p2pool_status_tab = 3;
+        app.p2pool_status_tab = 4;
 
         assert!(matches!(
             dispatch_key(press(KeyCode::Char('s')), &mut app),
@@ -896,7 +897,7 @@ port = 46884
         let home = std::env::var_os("HOME").expect("HOME is set for this test");
         let mut app = App::new();
         app.current_screen = CurrentScreen::P2PoolStatus;
-        app.p2pool_status_tab = 3;
+        app.p2pool_status_tab = 4;
         app.p2pool_conf_path =
             Some(std::path::PathBuf::from(home).join(".config/p2poolv2/config-signet.toml"));
 
