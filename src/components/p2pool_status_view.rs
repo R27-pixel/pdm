@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::app::{App, P2POOL_STATUS_TABS};
-use crate::p2poolv2_service::{P2PoolV2Service, instance_from_config_path};
+use crate::p2poolv2_service::instance_from_config_path;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, Tabs, Wrap},
@@ -229,11 +229,11 @@ impl P2PoolStatusView {
             .as_deref()
             .and_then(instance_from_config_path)
         {
-            let running = P2PoolV2Service::is_running(&instance).unwrap_or(false);
-            let status = if running {
-                Span::styled("Running", Style::default().fg(Color::Green))
-            } else {
-                Span::styled("Stopped", Style::default().fg(Color::Red))
+            let status = match &app.p2pool_running_status {
+                Some(Ok(true)) => Span::styled("Running", Style::default().fg(Color::Green)),
+                Some(Ok(false)) => Span::styled("Stopped", Style::default().fg(Color::Red)),
+                Some(Err(_)) => Span::styled("Unavailable", Style::default().fg(Color::Yellow)),
+                None => Span::styled("Unknown", Style::default().fg(Color::DarkGray)),
             };
 
             vec![
@@ -696,6 +696,68 @@ mod tests {
         assert!(output.contains("Service action failed"));
         assert!(output.contains("connection refused"));
         assert!(!output.contains("[s] Start"));
+    }
+
+    #[test]
+    fn render_system_tab_shows_running_status() {
+        let mut app = App::new();
+        app.p2pool_status_tab = SYSTEM_TAB;
+        let config_dir = crate::p2poolv2_service::user_p2pool_config_dir().unwrap();
+        app.p2pool_conf_path = Some(config_dir.join("config-signet.toml"));
+        app.p2pool_running_status = Some(Ok(true));
+
+        let output = render_view(&app);
+
+        assert!(output.contains("Instance       : signet"));
+        assert!(output.contains("Service Status : Running"));
+        assert!(!output.contains("Stopped"));
+    }
+
+    #[test]
+    fn render_system_tab_shows_stopped_status() {
+        let mut app = App::new();
+        app.p2pool_status_tab = SYSTEM_TAB;
+        let config_dir = crate::p2poolv2_service::user_p2pool_config_dir().unwrap();
+        app.p2pool_conf_path = Some(config_dir.join("config-signet.toml"));
+        app.p2pool_running_status = Some(Ok(false));
+
+        let output = render_view(&app);
+
+        assert!(output.contains("Instance       : signet"));
+        assert!(output.contains("Service Status : Stopped"));
+        assert!(!output.contains("Running"));
+    }
+
+    #[test]
+    fn render_system_tab_shows_unavailable_status_on_error() {
+        let mut app = App::new();
+        app.p2pool_status_tab = SYSTEM_TAB;
+        let config_dir = crate::p2poolv2_service::user_p2pool_config_dir().unwrap();
+        app.p2pool_conf_path = Some(config_dir.join("config-signet.toml"));
+        app.p2pool_running_status = Some(Err("failed to execute systemctl".to_string()));
+
+        let output = render_view(&app);
+
+        assert!(output.contains("Instance       : signet"));
+        assert!(output.contains("Service Status : Unavailable"));
+        assert!(!output.contains("Stopped"));
+        assert!(!output.contains("Running"));
+    }
+
+    #[test]
+    fn render_system_tab_shows_unknown_status_when_uninitialized() {
+        let mut app = App::new();
+        app.p2pool_status_tab = SYSTEM_TAB;
+        let config_dir = crate::p2poolv2_service::user_p2pool_config_dir().unwrap();
+        app.p2pool_conf_path = Some(config_dir.join("config-signet.toml"));
+        app.p2pool_running_status = None;
+
+        let output = render_view(&app);
+
+        assert!(output.contains("Instance       : signet"));
+        assert!(output.contains("Service Status : Unknown"));
+        assert!(!output.contains("Stopped"));
+        assert!(!output.contains("Running"));
     }
 
     #[test]

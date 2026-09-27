@@ -84,6 +84,7 @@ where
         app.poll_share_info();
         app.poll_peer_info();
         app.poll_live_p2pool_events();
+        app.poll_p2pool_running_status();
         terminal.draw(|f| ui::ui(f, app))?;
 
         if event::poll(Duration::from_millis(100))?
@@ -439,6 +440,8 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<ControlFlow<()>> {
             {
                 if let Err(error) = P2PoolV2Service::start(&instance) {
                     app.p2pool_service_error = Some(format!("Start failed: {error}"));
+                } else {
+                    app.refresh_p2pool_running_status();
                 }
             }
         }
@@ -451,6 +454,8 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<ControlFlow<()>> {
             {
                 if let Err(error) = P2PoolV2Service::stop(&instance) {
                     app.p2pool_service_error = Some(format!("Stop failed: {error}"));
+                } else {
+                    app.refresh_p2pool_running_status();
                 }
             }
         }
@@ -463,6 +468,8 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<ControlFlow<()>> {
             {
                 if let Err(error) = P2PoolV2Service::restart(&instance) {
                     app.p2pool_service_error = Some(format!("Restart failed: {error}"));
+                } else {
+                    app.refresh_p2pool_running_status();
                 }
             }
         }

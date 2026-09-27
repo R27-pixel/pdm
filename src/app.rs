@@ -10,6 +10,7 @@ use crate::components::p2pool_websocket::{
     LiveP2PoolEvent, LivePeerEvent, LiveShare, P2PoolWebSocketClient,
 };
 use crate::components::settings_view::SettingsView;
+use crate::p2poolv2_service::{P2PoolV2Service, instance_from_config_path};
 use crate::settings::Settings;
 use p2poolv2_config::Config as P2PoolConfig;
 use std::path::PathBuf;
@@ -115,6 +116,13 @@ pub struct App {
     pub live_peer_events: Vec<LivePeerEvent>,
     pub p2pool_live_error: Option<String>,
     pub p2pool_live_stream_started: bool,
+    pub live_stream_task: Option<tokio::task::JoinHandle<()>>,
+    /// Cached result of the last `P2PoolV2Service::is_running` query, refreshed
+    /// asynchronously each time the P2Pool Status screen is opened. `None` means
+    /// no query has completed yet (or the config was cleared).
+    pub p2pool_running_status: Option<Result<bool, String>>,
+    pub p2pool_running_status_tx: mpsc::UnboundedSender<(String, anyhow::Result<bool>)>,
+    pub p2pool_running_status_rx: mpsc::UnboundedReceiver<(String, anyhow::Result<bool>)>,
     pub bitcoin_chain_info_tx: mpsc::UnboundedSender<anyhow::Result<BitcoinChainInfo>>,
     pub bitcoin_chain_info_rx: mpsc::UnboundedReceiver<anyhow::Result<BitcoinChainInfo>>,
     pub p2pool_live_tx: mpsc::UnboundedSender<anyhow::Result<LiveP2PoolEvent>>,
@@ -137,6 +145,7 @@ impl App {
         let (peer_info_tx, peer_info_rx) = mpsc::unbounded_channel();
         let (share_info_tx, share_info_rx) = mpsc::unbounded_channel();
         let (p2pool_live_tx, p2pool_live_rx) = mpsc::unbounded_channel();
+        let (p2pool_running_status_tx, p2pool_running_status_rx) = mpsc::unbounded_channel();
         let p2pool_client = P2PoolClient::new();
         let p2pool_websocket_client = p2pool_client.websocket_client();
 
@@ -169,6 +178,10 @@ impl App {
             live_peer_events: Vec::new(),
             p2pool_live_error: None,
             p2pool_live_stream_started: false,
+            live_stream_task: None,
+            p2pool_running_status: None,
+            p2pool_running_status_tx,
+            p2pool_running_status_rx,
             bitcoin_chain_info_tx,
             bitcoin_chain_info_rx,
             p2pool_live_tx,
@@ -198,6 +211,9 @@ impl App {
     }
 
     pub fn clear_p2pool_config(&mut self) {
+        if let Some(task) = self.live_stream_task.take() {
+            task.abort();
+        }
         self.p2pool_config = None;
         self.p2pool_service_error = None;
         self.p2pool_client = P2PoolClient::new();
@@ -207,6 +223,9 @@ impl App {
 
     pub fn refresh_p2pool_clients_from_config(&mut self) {
         if let Some(config) = self.p2pool_config.as_ref() {
+            if let Some(task) = self.live_stream_task.take() {
+                task.abort();
+            }
             self.p2pool_client = P2PoolClient::from_p2pool_config(config);
             self.p2pool_websocket_client = self.p2pool_client.websocket_client();
             self.p2pool_live_stream_started = false;
@@ -224,6 +243,7 @@ impl App {
         self.live_peer_events.clear();
         self.p2pool_live_error = None;
         self.p2pool_live_stream_started = false;
+        self.p2pool_running_status = None;
     }
 
     /// Non-blocking result handler
@@ -311,6 +331,42 @@ impl App {
         self.poll_live_p2pool_events();
     }
 
+    pub fn poll_p2pool_running_status(&mut self) {
+        let current_instance = self
+            .p2pool_conf_path
+            .as_deref()
+            .and_then(instance_from_config_path);
+
+        while let Ok((instance, result)) = self.p2pool_running_status_rx.try_recv() {
+            if current_instance.as_deref() == Some(&instance) {
+                self.p2pool_running_status = Some(result.map_err(|e| e.to_string()));
+            }
+        }
+    }
+
+    pub fn refresh_p2pool_running_status(&mut self) {
+        if let Some(instance) = self
+            .p2pool_conf_path
+            .as_deref()
+            .and_then(instance_from_config_path)
+        {
+            let running_status_tx = self.p2pool_running_status_tx.clone();
+            let instance_name = instance.clone();
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    let instance_for_blocking = instance_name.clone();
+                    let result = tokio::task::spawn_blocking(move || {
+                        P2PoolV2Service::is_running(&instance_for_blocking)
+                    })
+                    .await
+                    .map_err(anyhow::Error::from)
+                    .and_then(|r| r);
+                    let _ = running_status_tx.send((instance_name, result));
+                });
+            }
+        }
+    }
+
     fn push_limited<T>(items: &mut Vec<T>, item: T, max_len: usize) {
         items.push(item);
         if items.len() > max_len {
@@ -385,7 +441,7 @@ impl App {
 
                     if start_live_stream {
                         self.p2pool_live_stream_started = true;
-                        handle.spawn(async move {
+                        let task = handle.spawn(async move {
                             if let Err(error) = websocket_client
                                 .subscribe_live_events(live_tx.clone())
                                 .await
@@ -393,7 +449,10 @@ impl App {
                                 let _ = live_tx.send(Err(error));
                             }
                         });
+                        self.live_stream_task = Some(task);
                     }
+
+                    self.refresh_p2pool_running_status();
                 }
             }
         }
@@ -712,5 +771,68 @@ mod tests {
 
         assert!(event.is_err());
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn refresh_p2pool_running_status_noop_when_no_config_path() {
+        let mut app = App::new();
+        app.p2pool_conf_path = None;
+        app.refresh_p2pool_running_status();
+        assert!(app.p2pool_running_status_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn poll_p2pool_running_status_preserves_ok_and_err_results() {
+        let mut app = App::new();
+        let config_dir = crate::p2poolv2_service::user_p2pool_config_dir().unwrap();
+        app.p2pool_conf_path = Some(config_dir.join("config-signet.toml"));
+
+        app.p2pool_running_status_tx
+            .send(("signet".to_string(), Ok(true)))
+            .unwrap();
+        app.poll_p2pool_running_status();
+        assert_eq!(app.p2pool_running_status, Some(Ok(true)));
+
+        app.p2pool_running_status_tx
+            .send(("signet".to_string(), Ok(false)))
+            .unwrap();
+        app.poll_p2pool_running_status();
+        assert_eq!(app.p2pool_running_status, Some(Ok(false)));
+
+        app.p2pool_running_status_tx
+            .send((
+                "signet".to_string(),
+                Err(anyhow::anyhow!("systemctl missing")),
+            ))
+            .unwrap();
+        app.poll_p2pool_running_status();
+        assert_eq!(
+            app.p2pool_running_status,
+            Some(Err("systemctl missing".to_string()))
+        );
+    }
+
+    #[test]
+    fn poll_p2pool_running_status_ignores_results_for_other_instances() {
+        let mut app = App::new();
+        let config_dir = crate::p2poolv2_service::user_p2pool_config_dir().unwrap();
+        app.p2pool_conf_path = Some(config_dir.join("config-signet.toml"));
+        app.p2pool_running_status = Some(Ok(true));
+
+        // Result for a different instance "main" should be ignored when "signet" is configured
+        app.p2pool_running_status_tx
+            .send(("main".to_string(), Ok(false)))
+            .unwrap();
+        app.poll_p2pool_running_status();
+        assert_eq!(app.p2pool_running_status, Some(Ok(true)));
+
+        // Result for another instance when no config is set should also be ignored
+        app.p2pool_conf_path = None;
+        app.p2pool_running_status = None;
+        app.p2pool_running_status_tx
+            .send(("signet".to_string(), Ok(true)))
+            .unwrap();
+        app.poll_p2pool_running_status();
+        assert_eq!(app.p2pool_running_status, None);
     }
 }

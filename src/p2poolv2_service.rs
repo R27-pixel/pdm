@@ -106,9 +106,9 @@ mod tests {
     use super::*;
     use serial_test::serial;
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
     use tempfile::TempDir;
 
+    #[cfg(unix)]
     fn fake_systemctl(
         fail_actions: bool,
         active: bool,
@@ -116,6 +116,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let script = dir.path().join("systemctl");
         let args_file = dir.path().join("args");
+        use std::os::unix::fs::PermissionsExt;
         fs::write(
             &script,
             format!(
@@ -145,6 +146,7 @@ mod tests {
         (dir, old_path, args_file)
     }
 
+    #[cfg(unix)]
     fn restore_path(old_path: Option<std::ffi::OsString>) {
         unsafe {
             match old_path {
@@ -154,6 +156,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     #[serial]
     fn service_actions_succeed_and_active_service_is_running() -> Result<()> {
@@ -175,6 +178,7 @@ mod tests {
         result
     }
 
+    #[cfg(unix)]
     #[test]
     #[serial]
     fn service_actions_report_systemctl_failures() {
