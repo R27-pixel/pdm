@@ -4,6 +4,7 @@
 
 use crate::components::bitcoin_client::{BitcoinChainInfo, BitcoinClient};
 use crate::components::file_explorer::FileExplorer;
+use crate::components::monitoring_view::MonitoringView;
 use crate::components::p2pool_client::{ChainInfo, P2PoolClient, PeerInfo, SharesResponse};
 use crate::components::p2pool_config_view::P2PoolConfigView;
 use crate::components::p2pool_websocket::{
@@ -25,6 +26,7 @@ pub const SIDEBAR_ITEMS: &[(&str, CurrentScreen)] = &[
     ("Bitcoin Status", CurrentScreen::BitcoinStatus),
     ("P2Pool Config", CurrentScreen::P2PoolConfig),
     ("P2Pool Status", CurrentScreen::P2PoolStatus),
+    ("Monitoring", CurrentScreen::Monitoring),
     ("Settings", CurrentScreen::Settings),
 ];
 
@@ -48,6 +50,7 @@ pub enum CurrentScreen {
     P2PoolConfig,
     P2PoolStatus,
     FileExplorer,
+    Monitoring,
     Settings,
 }
 
@@ -81,6 +84,14 @@ pub enum AppAction {
     StartP2Pool,
     StopP2Pool,
     RestartP2Pool,
+    GenerateMonitoringConfigs,
+    StartMonitoringPrometheus,
+    StopMonitoringPrometheus,
+    RestartMonitoringPrometheus,
+    StartMonitoringGrafana,
+    StopMonitoringGrafana,
+    RestartMonitoringGrafana,
+    RefreshMonitoringStatus,
     // Open the file explorer to pick a path for a settings field (field index)
     OpenExplorerForSettings(usize),
     // Clear a settings field by index, setting it back to None
@@ -101,6 +112,7 @@ pub struct App {
     pub p2pool_conf_path: Option<PathBuf>,
     pub explorer: FileExplorer,
     pub p2pool_config_view: P2PoolConfigView,
+    pub monitoring_view: MonitoringView,
     pub settings_view: SettingsView,
     pub p2pool_config: Option<P2PoolConfig>,
     pub bitcoin_status_tab: usize,
@@ -169,6 +181,7 @@ impl App {
             p2pool_conf_path: None,
             explorer: FileExplorer::new(),
             p2pool_config_view: P2PoolConfigView::new(),
+            monitoring_view: MonitoringView::new(),
             settings_view: SettingsView::new(),
             p2pool_config: None,
             bitcoin_status_tab: 0,
