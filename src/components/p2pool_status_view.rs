@@ -572,7 +572,6 @@ mod tests {
     };
     use crate::components::p2pool_websocket::{LivePeerEvent, LiveShare};
     use ratatui::{Terminal, backend::TestBackend, prelude::Rect};
-    use std::path::PathBuf;
 
     const SHARE_TAB: usize = 1;
     const PEER_TAB: usize = 2;

@@ -22,7 +22,7 @@ WorkingDirectory=%S/p2poolv2/%i
 
 # Deployment installs the P2Pool binary in the user's local bin directory.
 # %E is the user configuration directory, matching PDM's XDG fallback.
-ExecStart=%h/.local/bin/p2poolv2 --config %E/p2poolv2/config-%i.toml
+ExecStart=%h/.cargo/bin/p2poolv2 --config %E/p2poolv2/config-%i.toml
 
 Restart=on-failure
 RestartSec=5s
